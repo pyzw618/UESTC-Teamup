@@ -2,7 +2,7 @@
 import { ref, onMounted } from 'vue';
 import { useRouter } from 'vue-router';
 import { ElMessage } from 'element-plus';
-import { ApplicationStatus, ApplicationStatusLabel } from '@teamup/shared';
+import { ApplicationStatus, ApplicationStatusLabel, RoleType, RoleTypeLabel } from '@teamup/shared';
 import { api } from '../../api/client';
 import { fmtDate } from '../../api/types';
 import UserAvatar from '../../components/UserAvatar.vue';
@@ -10,15 +10,19 @@ import UserAvatar from '../../components/UserAvatar.vue';
 const router = useRouter();
 
 const sent = ref<
-  { id: string; pitch: string; status: ApplicationStatus; reason: string | null; createdAt: string; team: { id: string; competition: { name: string }; leader: { nickname: string | null } } }[]
+  { id: string; desiredRole: RoleType; pitch: string; status: ApplicationStatus; reason: string | null; createdAt: string; team: { id: string; competition: { name: string }; leader: { nickname: string | null } } }[]
 >([]);
 const received = ref<
-  { id: string; pitch: string; status: ApplicationStatus; createdAt: string; team: { id: string; competition: { name: string } }; user: { id: string; nickname: string | null; college: string | null; grade: number | null } }[]
+  { id: string; desiredRole: RoleType; pitch: string; status: ApplicationStatus; createdAt: string; team: { id: string; competition: { name: string } }; user: { id: string; nickname: string | null; college: string | null; grade: number | null } }[]
 >([]);
 const invitations = ref<
-  { id: string; status: string; createdAt: string; team: { id: string; competition: { name: string }; leader: { nickname: string | null } } }[]
+  { id: string; role: RoleType; message: string | null; status: string; createdAt: string; team: { id: string; competition: { name: string }; leader: { nickname: string | null } } }[]
 >([]);
 const loading = ref(true);
+
+function roleLabel(r: RoleType | string) {
+  return RoleTypeLabel[r as RoleType] ?? r;
+}
 
 const statusType = (s: string) =>
   s === 'PENDING' ? 'warning' : s === 'ACCEPTED' ? 'success' : s === 'REJECTED' ? 'danger' : 'info';
@@ -62,7 +66,8 @@ async function respondInvitation(id: string, accept: boolean) {
       <div class="flex flex-col gap-10px">
         <div v-for="i in invitations" :key="i.id" class="flex items-center gap-10px flex-wrap rounded-12px p-10px" style="background: rgba(255,255,255,0.5)">
           <span class="text-13px">
-            <b>{{ i.team.leader?.nickname || '队长' }}</b> 邀请你加入「{{ i.team.competition.name }}」的队伍
+            <b>{{ i.team.leader?.nickname || '队长' }}</b> 邀请你以「{{ roleLabel(i.role) }}」加入「{{ i.team.competition.name }}」的队伍
+            <span v-if="i.message" class="color-ink-soft"> · {{ i.message }}</span>
           </span>
           <span class="text-12px color-ink-faint">{{ fmtDate(i.createdAt) }}</span>
           <div class="ml-auto flex gap-6px">
@@ -89,7 +94,7 @@ async function respondInvitation(id: string, accept: boolean) {
         >
           <UserAvatar :name="a.user.nickname || 'U'" :size="28" />
           <span class="text-13px font-semibold">{{ a.user.nickname || '同学' }}</span>
-          <span class="text-12px color-ink-soft">申请加入「{{ a.team.competition.name }}」</span>
+          <span class="text-12px color-ink-soft">申请加入「{{ a.team.competition.name }}」· {{ roleLabel(a.desiredRole) }}</span>
           <el-tag :type="statusType(a.status) as never" size="small" round class="ml-auto">
             {{ ApplicationStatusLabel[a.status] ?? a.status }}
           </el-tag>
@@ -108,7 +113,7 @@ async function respondInvitation(id: string, accept: boolean) {
               class="text-13px font-semibold color-uestc-600 cursor-pointer"
               @click="router.push(`/teams/${a.team.id}`)"
             >{{ a.team.competition.name }} →</span>
-            <span class="text-12px color-ink-faint">队长 {{ a.team.leader?.nickname || '—' }} · {{ fmtDate(a.createdAt) }}</span>
+            <span class="text-12px color-ink-faint">方向 {{ roleLabel(a.desiredRole) }} · 队长 {{ a.team.leader?.nickname || '—' }} · {{ fmtDate(a.createdAt) }}</span>
             <div class="ml-auto flex items-center gap-6px">
               <el-tag :type="statusType(a.status) as never" size="small" round>
                 {{ ApplicationStatusLabel[a.status] ?? a.status }}

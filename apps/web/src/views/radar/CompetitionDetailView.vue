@@ -29,6 +29,7 @@ const correctionSubmitting = ref(false);
 const comments = ref<CommentItem[]>([]);
 
 const recruitingTeams = ref<TeamSummary[]>([]);
+const recruitingTeamsCount = ref(0);
 
 const nextDeadline = computed(() => {
   const signup = comp.value?.timelines.filter((t) => (t.stage || '').includes('报名') && t.endAt).sort((a, b) => new Date(a.endAt!).getTime() - new Date(b.endAt!).getTime());
@@ -46,9 +47,12 @@ const nowNodes = computed(() => {
 async function load() {
   loading.value = true;
   try {
-    const raw = await api.get<CompetitionDetail & { recruitingTeams: TeamSummary[] }>(`/competitions/${route.params.id}`);
+    const raw = await api.get<CompetitionDetail & { recruitingTeams: TeamSummary[]; recruitingTeamsCount?: number }>(
+      `/competitions/${route.params.id}`,
+    );
     comp.value = raw;
     recruitingTeams.value = raw.recruitingTeams ?? [];
+    recruitingTeamsCount.value = raw.recruitingTeamsCount ?? recruitingTeams.value.length;
     if (auth.isLoggedIn) {
       try {
         const favs = await api.get<{ targetType: string; targetId: string }[]>('/favorites?targetType=COMPETITION');
@@ -274,8 +278,9 @@ async function loadComments() {
                 :goal="t.goal"
                 :status="t.status"
                 :deadline="t.deadline"
-                :open-roles="t.slots.filter((s) => !s.filled).map((s) => s.role)"
+                :open-roles="t.openRoles"
                 :member-count="t.memberCount"
+                :target-size="t.targetSize"
                 :team-id="t.id"
               />
             </router-link>
@@ -284,8 +289,8 @@ async function loadComments() {
         </template>
         <FrostedGate
           v-else
-          title="本竞赛的招募信息仅对登录同学可见"
-          description="登录后查看正在招募的队伍与缺口角色"
+          :title="recruitingTeamsCount > 0 ? `当前有 ${recruitingTeamsCount} 支队伍正在招募` : '本竞赛暂无人组队'"
+          description="组队招募信息仅对已通过校园邮箱认证并登录的同学开放，登录后查看队伍与缺口角色"
           style="min-height: 180px"
         >
           <div class="grid grid-cols-2 gap-12px p-6px">

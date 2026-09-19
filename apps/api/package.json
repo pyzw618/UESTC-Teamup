@@ -9,6 +9,7 @@
     "prisma:generate": "prisma generate",
     "prisma:migrate": "prisma migrate dev",
     "seed": "tsx prisma/seed.ts",
+    "test": "node --import tsx --test test/teams.spec.ts",
     "postinstall": "prisma generate"
   },
   "prisma": {

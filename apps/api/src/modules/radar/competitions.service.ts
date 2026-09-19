@@ -134,14 +134,26 @@ export class CompetitionsService {
     });
     if (!row || row.status === 'ARCHIVED') throw new NotFoundException('竞赛不存在或已下线');
 
+    // “正在招募”只统计 RECRUITING（PAUSED 已暂停接收新候选人）
     const recruitingTeams = await this.prisma.team.findMany({
-      where: { competitionId: id, status: { in: ['RECRUITING', 'NEGOTIATING'] } },
+      where: { competitionId: id, status: 'RECRUITING' },
       orderBy: { createdAt: 'desc' },
       take: 20,
       include: {
-        leader: { include: { memberships: { select: { teamId: true } } } },
-        slots: true,
-        members: true,
+        leader: {
+          select: {
+            id: true,
+            nickname: true,
+            college: true,
+            grade: true,
+            major: true,
+            bio: true,
+            studentNo: true,
+            memberships: { where: { active: true }, select: { teamId: true } },
+          },
+        },
+        slots: { select: { id: true, role: true, status: true, note: true } },
+        members: { where: { active: true }, select: { id: true, userId: true } },
         _count: { select: { applications: { where: { status: 'PENDING' } } } },
       },
     });

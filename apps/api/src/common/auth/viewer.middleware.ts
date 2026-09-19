@@ -27,8 +27,9 @@ export class ViewerMiddleware implements NestMiddleware {
       return;
     }
 
+    // 只统计“有效成员”关系（软删除的历史成员不参与同队解锁）
     const memberships = await this.prisma.teamMember.findMany({
-      where: { userId: user.id },
+      where: { userId: user.id, active: true },
       select: { teamId: true },
     });
     this.viewer.run({ userId: user.id, role: user.role, teamIds: new Set(memberships.map((m) => m.teamId)) }, () =>

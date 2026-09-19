@@ -81,7 +81,7 @@ export class UsersService {
       where: { id },
       include: {
         skills: true,
-        memberships: { select: { teamId: true } },
+        memberships: { where: { active: true }, select: { teamId: true } },
       },
     });
     if (!user) throw new NotFoundException('用户不存在');
@@ -102,7 +102,7 @@ export class UsersService {
   /** 名片上的"正在参与的队伍"（招募中/已参赛） */
   async publicTeams(id: string) {
     const memberships = await this.prisma.teamMember.findMany({
-      where: { userId: id },
+      where: { userId: id, active: true },
       select: { teamId: true },
     });
     const teamIds = memberships.map((m) => m.teamId);

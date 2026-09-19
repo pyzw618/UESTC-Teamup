@@ -1,6 +1,6 @@
 import { AsyncLocalStorage } from 'node:async_hooks';
 import { Injectable } from '@nestjs/common';
-import type { User, UserSkill } from '@prisma/client';
+import type { User } from '@prisma/client';
 
 export interface ViewerInfo {
   userId?: string;
@@ -30,7 +30,8 @@ export type SerializableUser = Pick<
   User,
   'id' | 'nickname' | 'college' | 'grade' | 'major' | 'studentNo' | 'bio'
 > & {
-  skills?: UserSkill[];
+  // 只要求序列化真正用到的字段（user 关系通常只 select skill/level）
+  skills?: { skill: string; level: number | null }[];
   /** 该用户参与的队伍 id（调用方 include，供同队判断） */
   teamIds?: string[];
   /** 该用户的联系方式（同队/本人/管理员可见） */

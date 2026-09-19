@@ -36,7 +36,7 @@ async function load() {
         competitionId: filters.competitionId || undefined,
         roles: filters.roles.length ? filters.roles : undefined,
         goal: filters.goal || undefined,
-        statuses: filters.includeClosed ? ['RECRUITING', 'NEGOTIATING', 'FULL', 'COMPETING'] : undefined,
+        statuses: filters.includeClosed ? ['RECRUITING', 'PAUSED', 'FULL', 'COMPETING'] : undefined,
         sort: filters.sort,
         page: page.value,
         pageSize: 12,
@@ -108,9 +108,9 @@ onMounted(() => {
           <el-option value="DEADLINE" label="招募截止临近" />
         </el-select>
         <el-checkbox v-model="filters.includeClosed">
-          <span class="text-13px">显示已满员 / 已解散</span>
+          <span class="text-13px">显示暂停 / 已满员 / 已参赛</span>
         </el-checkbox>
-        <span class="text-12px color-ink-faint ml-auto hidden md:inline">默认不显示满员与解散队伍，拒绝僵尸帖</span>
+        <span class="text-12px color-ink-faint ml-auto hidden md:inline">默认只看招募中；已解散与已归档永不出现在发现列表</span>
       </div>
 
       <div v-loading="loading" class="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-14px min-h-300px">
@@ -134,8 +134,7 @@ onMounted(() => {
             :deadline="t.deadline"
             :open-roles="t.openRoles"
             :member-count="t.memberCount"
-            :team-size="t.teamSize"
-            :current-size="t.currentSize"
+            :target-size="t.targetSize"
             :expired="t.expired"
             :team-id="t.id"
           />

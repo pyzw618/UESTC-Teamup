@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { ref, onMounted } from 'vue';
+import { ref, computed, onMounted } from 'vue';
 import { useRoute, useRouter } from 'vue-router';
 import { ElMessage } from 'element-plus';
 import { RoleType, RoleTypeLabel, TeamGoal, TeamGoalLabel } from '@teamup/shared';
@@ -15,12 +15,11 @@ const form = ref({
   competitionName: '',
   manualMode: false,
   goal: undefined as TeamGoal | undefined,
-  currentSize: null as number | null,
-  teamSize: null as number | null,
   requirement: '',
   contact: '',
   deadline: null as string | null,
-  slots: [] as { role: RoleType; note: string }[],
+  // 每个方向一行，可设数量（算法 ×2、论文 ×1），允许同一 role 多行
+  slots: [] as { role: RoleType | null; count: number; note: string }[],
   members: [] as { role: RoleType | null; rank: string; grade: null | number; college: string; note: string }[],
 });
 const submitting = ref(false);
@@ -30,6 +29,11 @@ const roleOptions = Object.values(RoleType).map((r) => ({ value: r, label: RoleT
 
 const competitionOptions = ref<{ id: string; name: string }[]>([]);
 const competitionSearching = ref(false);
+
+/** 目标人数 = 已有成员（含自己）+ 展开后的名额数 */
+const targetSize = computed(
+  () => 1 + form.value.members.length + form.value.slots.reduce((sum, s) => sum + (s.role ? Math.max(1, s.count) : 0), 0),
+);
 
 async function searchCompetition(word: string) {
   if (!word.trim()) return;
@@ -64,12 +68,14 @@ function switchToManual() {
   form.value.manualMode = true;
   form.value.competitionId = '';
 }
-
 function switchToSelect() {
   form.value.manualMode = false;
   form.value.competitionName = '';
 }
-
+function addSlot() {
+  if (form.value.slots.length >= 10) return;
+  form.value.slots.push({ role: null, count: 1, note: '' });
+}
 function addMember() {
   if (form.value.members.length >= 10) return;
   form.value.members.push({ role: null, rank: '', grade: null, college: '', note: '' });
@@ -88,30 +94,28 @@ async function submit() {
     ElMessage.warning('请选择队伍目标');
     return;
   }
-  if (!form.value.teamSize) {
-    ElMessage.warning('请填写计划成员人数');
+  const validSlots = form.value.slots.filter((s) => s.role);
+  if (!validSlots.length) {
+    ElMessage.warning('请至少添加一个缺口方向');
     return;
   }
-  if (form.value.currentSize != null && form.value.currentSize > form.value.teamSize) {
-    ElMessage.warning('已有成员人数不能超过计划成员人数');
-    return;
-  }
-  if (!form.value.slots.length) {
-    ElMessage.warning('请至少添加一个缺口角色');
-    return;
-  }
+
+  // 展开为真实名额：算法 ×2 -> 两个 ALGORITHM slot
+  const slots = validSlots.flatMap((s) =>
+    Array.from({ length: Math.max(1, Math.min(10, s.count)) }, () => ({ role: s.role as RoleType, note: s.note || undefined })),
+  );
+
   submitting.value = true;
   try {
     const team = await api.post<{ id: string }>('/teams', {
       competitionId: form.value.manualMode ? undefined : form.value.competitionId,
       competitionName: form.value.manualMode ? form.value.competitionName.trim() : undefined,
       goal: form.value.goal,
-      teamSize: form.value.teamSize,
-      currentSize: form.value.currentSize ?? undefined,
       requirement: form.value.requirement || undefined,
       contact: form.value.contact || undefined,
       deadline: form.value.deadline || undefined,
-      slots: form.value.slots.map((s) => ({ role: s.role })),
+      slots,
+      // 只录入平台外成员：不传 userId，平台用户须走申请/邀请
       members: form.value.members.map((m) => ({
         role: m.role ?? undefined,
         rank: m.rank || undefined,
@@ -135,7 +139,7 @@ void auth;
 <template>
   <div class="page-wrap max-w-760px mx-auto">
     <h1 class="text-28px font-extrabold m-0 mb-4px">发布组队</h1>
-    <p class="text-13px color-ink-soft m-0 mb-18px">带 <span style="color: #d99f00">*</span> 为必填</p>
+    <p class="text-13px color-ink-soft m-0 mb-18px">带 <span style="color: #d99f00">*</span> 为必填 · 同一方向可填多个名额</p>
 
     <div class="glass p-24px flex flex-col gap-20px">
       <!-- 1. 竞赛：选择菜单 / 手动填写 -->
@@ -160,12 +164,7 @@ void auth;
         </template>
         <template v-else>
           <div class="flex gap-8px">
-            <el-input
-              v-model="form.competitionName"
-              size="large"
-              maxlength="120"
-              placeholder="手动填写竞赛名称"
-            />
+            <el-input v-model="form.competitionName" size="large" maxlength="120" placeholder="手动填写竞赛名称" />
             <el-button size="large" @click="switchToSelect">改用选择菜单</el-button>
           </div>
         </template>
@@ -179,53 +178,34 @@ void auth;
         </el-radio-group>
       </div>
 
-      <!-- 3. 成员人数 -->
+      <!-- 3. 缺口方向（支持同一方向多个名额） -->
       <div>
-        <div class="form-label">成员人数 <span class="req">*</span></div>
-        <div class="grid grid-cols-2 gap-16px" style="max-width: 420px">
-          <div>
-            <div class="sub-label">已有成员人数</div>
-            <el-input-number
-              v-model="form.currentSize"
-              :min="0"
-              :max="99"
-              controls-position="right"
-              style="width: 100%"
-              placeholder="含自己"
-            />
+        <div class="form-label">缺口方向 <span class="req">*</span></div>
+        <p class="text-12px color-ink-faint m-0 mb-8px">例如「算法 ×2，论文 ×1」。当前目标人数：{{ targetSize }} 人（含你自己与已录入成员）</p>
+        <div class="flex flex-col gap-8px">
+          <div
+            v-for="(s, i) in form.slots"
+            :key="i"
+            class="grid grid-cols-1 md:grid-cols-[1fr_120px_1fr_auto] gap-8px items-center rounded-12px p-10px"
+            style="background: rgba(255, 255, 255, 0.5)"
+          >
+            <el-select v-model="s.role" placeholder="角色方向">
+              <el-option v-for="r in roleOptions" :key="r.value" :value="r.value" :label="r.label" />
+            </el-select>
+            <el-input-number v-model="s.count" :min="1" :max="10" controls-position="right" style="width: 100%" />
+            <el-input v-model="s.note" placeholder="备注（选填）" maxlength="200" />
+            <el-button type="danger" plain circle size="small" @click="form.slots.splice(i, 1)">
+              <el-icon><i-ep-delete /></el-icon>
+            </el-button>
           </div>
-          <div>
-            <div class="sub-label">计划成员人数</div>
-            <el-input-number
-              v-model="form.teamSize"
-              :min="1"
-              :max="99"
-              controls-position="right"
-              style="width: 100%"
-              placeholder="队伍总人数"
-            />
-          </div>
+          <el-button plain round size="small" class="self-start" @click="addSlot">+ 添加缺口方向</el-button>
         </div>
       </div>
 
-      <!-- 4. 缺口角色 -->
+      <!-- 4. 已有成员情况（仅平台外成员） -->
       <div>
-        <div class="form-label">缺口角色 <span class="req">*</span></div>
-        <el-select
-          :model-value="form.slots.map((s) => s.role)"
-          multiple
-          collapse-tags
-          placeholder="点此选择角色"
-          style="min-width: 260px"
-          @update:model-value="(roles: string[]) => { form.slots = roles.map((r) => ({ role: r as RoleType, note: '' })) }"
-        >
-          <el-option v-for="r in roleOptions" :key="r.value" :value="r.value" :label="r.label" />
-        </el-select>
-      </div>
-
-      <!-- 5. 已有成员情况 -->
-      <div>
-        <div class="form-label">已有成员情况（选填）</div>
+        <div class="form-label">已有成员情况（选填，仅平台外成员）</div>
+        <p class="text-12px color-ink-faint m-0 mb-8px">平台注册同学请勿在此录入，须通过「申请 / 邀请」流程加入。</p>
         <div class="flex flex-col gap-8px">
           <div
             v-for="(m, i) in form.members"
@@ -250,18 +230,13 @@ void auth;
         </div>
       </div>
 
-      <!-- 6. 招募要求 -->
+      <!-- 5. 招募要求 -->
       <div>
         <div class="form-label">招募要求</div>
-        <el-input
-          v-model="form.requirement"
-          type="textarea"
-          :rows="3"
-          placeholder="技能要求、投入时长、面试方式…"
-        />
+        <el-input v-model="form.requirement" type="textarea" :rows="3" placeholder="技能要求、投入时长、面试方式…" />
       </div>
 
-      <!-- 7. 招募截止 / 联系方式 -->
+      <!-- 6. 招募截止 / 联系方式 -->
       <div class="grid grid-cols-1 md:grid-cols-2 gap-16px">
         <div>
           <div class="form-label">招募截止</div>
@@ -286,11 +261,6 @@ void auth;
   font-weight: 600;
   color: var(--ink);
   margin-bottom: 8px;
-}
-.sub-label {
-  font-size: 12px;
-  color: var(--ink-soft);
-  margin-bottom: 4px;
 }
 .req {
   color: #d99f00;

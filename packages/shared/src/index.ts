@@ -34,11 +34,28 @@ export enum TeamGoal {
 }
 
 export enum TeamStatus {
+  /** 正在公开招募：可产生新的 Application / Invitation */
   RECRUITING = 'RECRUITING',
-  NEGOTIATING = 'NEGOTIATING',
+  /** 暂停接收新候选人，但可继续处理已有候选人 */
+  PAUSED = 'PAUSED',
+  /** 所有开放名额已填满 */
   FULL = 'FULL',
+  /** 阵容已确认，不再公开调整 */
   COMPETING = 'COMPETING',
+  /** 队长主动解散（人为终止） */
   DISBANDED = 'DISBANDED',
+  /** 比赛生命周期结束后系统归档（正常结束） */
+  ARCHIVED = 'ARCHIVED',
+}
+
+/** TeamSlot 招募名额状态 */
+export enum SlotStatus {
+  /** 仍然需要招人 */
+  OPEN = 'OPEN',
+  /** 已经由成员占据 */
+  FILLED = 'FILLED',
+  /** 队长取消了这个招募需求（并非已招到人） */
+  CLOSED = 'CLOSED',
 }
 
 export enum RoleType {
@@ -58,6 +75,8 @@ export enum ApplicationStatus {
   ACCEPTED = 'ACCEPTED',
   REJECTED = 'REJECTED',
   WITHDRAWN = 'WITHDRAWN',
+  /** 因队伍满员/解散/归档或同竞赛已加入其他队伍而自动失效 */
+  EXPIRED = 'EXPIRED',
 }
 
 export enum PublishStatus {
@@ -95,6 +114,8 @@ export enum NotificationKind {
   CRAWL_ANOMALY = 'CRAWL_ANOMALY',
   SOURCE_FAILING = 'SOURCE_FAILING',
   CORRECTION_NEW = 'CORRECTION_NEW',
+  MEMBER_LEFT = 'MEMBER_LEFT',
+  MEMBER_REMOVED = 'MEMBER_REMOVED',
 }
 
 export enum RevisionOrigin {
@@ -133,10 +154,28 @@ export const LevelLabel: Record<Level, string> = {
 
 export const TeamStatusLabel: Record<TeamStatus, string> = {
   [TeamStatus.RECRUITING]: '招募中',
-  [TeamStatus.NEGOTIATING]: '沟通中',
+  [TeamStatus.PAUSED]: '暂停招募',
   [TeamStatus.FULL]: '已满员',
   [TeamStatus.COMPETING]: '已参赛',
   [TeamStatus.DISBANDED]: '已解散',
+  [TeamStatus.ARCHIVED]: '已归档',
+};
+
+/** 公共“找队友”列表默认只展示的状态（DISBANDED / ARCHIVED 不出现） */
+export const DISCOVERABLE_TEAM_STATUSES: TeamStatus[] = [TeamStatus.RECRUITING];
+
+/** 可手动筛选展示的有限状态（排除 DISBANDED / ARCHIVED） */
+export const FILTERABLE_TEAM_STATUSES: TeamStatus[] = [
+  TeamStatus.RECRUITING,
+  TeamStatus.PAUSED,
+  TeamStatus.FULL,
+  TeamStatus.COMPETING,
+];
+
+export const SlotStatusLabel: Record<SlotStatus, string> = {
+  [SlotStatus.OPEN]: '招募中',
+  [SlotStatus.FILLED]: '已招到',
+  [SlotStatus.CLOSED]: '已取消',
 };
 
 export const TeamGoalLabel: Record<TeamGoal, string> = {
@@ -185,6 +224,8 @@ export const NotificationKindLabel: Record<NotificationKind, string> = {
   [NotificationKind.CRAWL_ANOMALY]: '采集异常',
   [NotificationKind.SOURCE_FAILING]: '数据源告警',
   [NotificationKind.CORRECTION_NEW]: '用户纠错',
+  [NotificationKind.MEMBER_LEFT]: '成员退出',
+  [NotificationKind.MEMBER_REMOVED]: '成员被移除',
 };
 
 export const CorrectionStatusLabel: Record<CorrectionStatus, string> = {
@@ -204,6 +245,7 @@ export const ApplicationStatusLabel: Record<ApplicationStatus, string> = {
   [ApplicationStatus.ACCEPTED]: '已通过',
   [ApplicationStatus.REJECTED]: '已婉拒',
   [ApplicationStatus.WITHDRAWN]: '已撤回',
+  [ApplicationStatus.EXPIRED]: '已失效',
 };
 
 /* ---------------- 通用类型 ---------------- */

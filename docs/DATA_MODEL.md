@@ -52,13 +52,18 @@ enum Audience { UNDERGRAD  POSTGRAD  MIXED }        // 本科生 / 研究生 / �
 enum TeamGoal { PRIZE  PRACTICE  NATIONAL_FIRST  BONUS_ONLY }
 // 保奖 / 学习练手 / 冲国一 / 只为加分
 
-enum TeamStatus { RECRUITING  NEGOTIATING  FULL  COMPETING  DISBANDED }
-// 招募中 / 沟通中 / 已满员 / 已参赛 / 已解散
+enum TeamStatus { RECRUITING  PAUSED  FULL  COMPETING  DISBANDED  ARCHIVED }
+// 招募中 / 暂停招募 / 已满员 / 已参赛 / 人为解散 / 正常归档
+// 注：旧 NEGOTIATING 已迁移为 PAUSED；正常结束用 ARCHIVED，只有队长主动解散才是 DISBANDED
+
+enum SlotStatus { OPEN  FILLED  CLOSED }
+// 招募名额：仍缺人 / 已被成员占据 / 队长取消该需求
 
 enum RoleType { ALGORITHM  FRONTEND  BACKEND  HARDWARE  MODELING  UI  PAPER  DEFENSE  OTHER }
 // 算法 / 前端 / 后端 / 硬件 / 建模 / UI / 论文 / 答辩 / 其他
 
-enum ApplicationStatus { PENDING  ACCEPTED  REJECTED  WITHDRAWN }
+enum ApplicationStatus { PENDING  ACCEPTED  REJECTED  WITHDRAWN  EXPIRED }
+// EXPIRED：队伍满员/解散/归档，或同竞赛已加入其他队伍而自动失效
 enum PublishStatus { DRAFT  PUBLISHED  ARCHIVED }
 enum SourceHealth { HEALTHY  DEGRADED  FAILING  SUSPENDED }
 // 正常 / 降级 / 疑似失效 / 已熔断
@@ -289,7 +294,10 @@ model Team {
   deadline      DateTime?                // 招募截止时间
 
   status        TeamStatus @default(RECRUITING)
+  archivedAt    DateTime?                // 正常生命周期归档时间
   createdAt     DateTime @default(now())
+
+  // 人数不落库：当前 = 活跃 TeamMember 数，剩余 = OPEN 名额数，目标 = 两者之和
 
   members       TeamMember[]
   slots         TeamSlot[]
@@ -299,43 +307,57 @@ model Team {
 }
 
 model TeamMember {
-  id          String   @id @default(cuid())
-  teamId      String
-  userId      String?                     // ⚠️ 可为空 = 平台外成员（队友没注册）
-  displayName String?                     // 平台外成员的名字
+  id            String   @id @default(cuid())
+  teamId        String
+  userId        String?                     // ⚠️ 可为空 = 平台外成员（队友没注册）
+  competitionId String                        // 冗余自 Team，用于“同竞赛一人一队”唯一索引
+  displayName   String?                     // 平台外成员的名字
 
   role        RoleType?
-  // ---- 已有成员情况（v0.3 新增字段）----
-  rank        String?                     // 竞赛/学业排名描述
+  rank        String?
   grade       Int?
   college     String?
-  note        String?                     // 其他补充
+  note        String?
+
+  active      Boolean  @default(true)       // false = 已退出/被移除（软删除，保留历史）
   joinedAt    DateTime @default(now())
+  leftAt      DateTime?
+  // 约束：@@unique([teamId, userId])；部分唯一索引 (userId, competitionId) WHERE active
 }
 
 model TeamSlot {
-  id     String   @id @default(cuid())
-  teamId String
-  role   RoleType
-  filled Boolean  @default(false)
+  id               String     @id @default(cuid())
+  teamId           String
+  role             RoleType
+  note             String?
+  status           SlotStatus @default(OPEN)   // OPEN / FILLED / CLOSED
+  filledByMemberId String?   @unique           // 占据该名额的成员（一个成员最多占一个名额）
+  filledAt         DateTime?
+  createdAt        DateTime  @default(now())
 }
 
 model Application {
-  id        String   @id @default(cuid())
-  teamId    String
-  userId    String
-  pitch     String?  @db.Text            // 自我介绍 + 技能证明
-  status    ApplicationStatus @default(PENDING)
-  reason    String?                      // 婉拒理由（用模板降低社交压力）
-  createdAt DateTime @default(now())
+  id          String   @id @default(cuid())
+  teamId      String
+  userId      String
+  desiredRole RoleType                          // 期望方向（不指定具体 slot id）
+  pitch       String?  @db.Text                 // 自我介绍 + 技能证明
+  status      ApplicationStatus @default(PENDING)
+  reason      String?                           // 婉拒理由（用模板降低社交压力）
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+  // 部分唯一索引 (teamId, userId) WHERE status='PENDING'
 }
 
 model Invitation {
   id        String   @id @default(cuid())
   teamId    String
-  userId    String
+  userId    String                              // 被邀请人
+  role      RoleType                            // 邀请方向
+  message   String?
   status    ApplicationStatus @default(PENDING)
   createdAt DateTime @default(now())
+  // 部分唯一索引 (teamId, userId) WHERE status='PENDING'
 }
 
 model Workspace {

@@ -1,0 +1,16 @@
+node_modules/
+dist/
+.env
+.env.local
+*.local
+.DS_Store
+logs/
+*.log
+coverage/
+.turbo/
+vite-dist/
+apps/web/dist/
+apps/api/dist/
+packages/shared/dist/
+prisma/migrations/dev.db*
+.zcode

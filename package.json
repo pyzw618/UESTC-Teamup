@@ -1,0 +1,17 @@
+{
+  "name": "uestc-teamup",
+  "version": "0.1.0",
+  "private": true,
+  "description": "成电人的竞赛罗盘 —— UESTC 校内竞赛信息与组队平台",
+  "scripts": {
+    "dev": "pnpm -r --parallel --stream dev",
+    "dev:api": "pnpm -F @teamup/api dev",
+    "dev:web": "pnpm -F @teamup/web dev",
+    "build": "pnpm -F @teamup/shared build && pnpm -r --filter '!@teamup/shared' build",
+    "db:migrate": "pnpm -F @teamup/api prisma:migrate",
+    "db:seed": "pnpm -F @teamup/api seed"
+  },
+  "engines": {
+    "node": ">=20"
+  }
+}

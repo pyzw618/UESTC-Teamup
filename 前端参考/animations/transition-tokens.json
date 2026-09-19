@@ -1,0 +1,37 @@
+{
+  "static/css/index.b23e910b4c.css": {
+    "durations": {
+      ".15s": 4,
+      ".25s": 3,
+      ".18s": 3,
+      ".16s": 2,
+      ".12s": 3,
+      "80ms": 1,
+      ".5s": 1,
+      ".22s": 1,
+      ".34s": 1
+    },
+    "easings": {
+      "ease-out": 2,
+      "linear": 1,
+      "ease-in-out": 1,
+      "cubic-bezier(.22,1.4,.36,1)": 1
+    },
+    "props": {
+      "background-color": 5,
+      "box-shadow": 2,
+      "opacity": 3,
+      "color": 2,
+      "width": 1,
+      "transform": 4,
+      "height": 1,
+      "top": 1,
+      "none": 1
+    }
+  },
+  "static/css/40.10e003a7e2.css": {
+    "durations": {},
+    "easings": {},
+    "props": {}
+  }
+}

@@ -1,0 +1,468 @@
+/* =====================================================
+   UESTC TeamUp 设计系统
+   视觉语言参考 sharellm 存档（渐变背景 + 玻璃拟态 + 微交互动效）
+   配色替换为成电校徽色系：深蓝 #0F4C8C + 银杏黄 #F5B901
+   ===================================================== */
+
+:root {
+  --uestc-blue: #0f4c8c;
+  --uestc-blue-deep: #0a2e55;
+  --uestc-blue-light: #4a7fb5;
+  --ginkgo-gold: #f5b901;
+  --ginkgo-gold-deep: #d99f00;
+  --ink: #16283a;
+  --ink-soft: #5a6b7e;
+  --ink-faint: #93a3b5;
+
+  --glass-bg: rgba(255, 255, 255, 0.65);
+  --glass-bg-strong: rgba(255, 255, 255, 0.8);
+  --glass-border: rgba(255, 255, 255, 0.6);
+  --glass-shadow: 0 8px 32px rgba(15, 76, 140, 0.08);
+  --glass-shadow-hover: 0 14px 40px rgba(15, 76, 140, 0.14);
+
+  --ease-out: cubic-bezier(0.25, 0.46, 0.45, 0.94);
+  --ease-bounce: cubic-bezier(0.22, 1.4, 0.36, 1);
+
+  /* Element Plus 主题变量接入校徽色 */
+  --el-color-primary: var(--uestc-blue);
+  --el-color-primary-light-3: #4a7fb5;
+  --el-color-primary-light-5: #8ab4e2;
+  --el-color-primary-light-7: #b7d2ee;
+  --el-color-primary-light-8: #dce9f7;
+  --el-color-primary-light-9: #eef5fc;
+  --el-color-primary-dark-2: #0c3d70;
+  --el-color-warning: var(--ginkgo-gold-deep);
+  --el-border-radius-base: 10px;
+  --el-border-radius-round: 999px;
+  --el-font-family: 'PingFang SC', 'HarmonyOS Sans SC', 'Microsoft YaHei', 'Segoe UI', system-ui, sans-serif;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+html,
+body {
+  margin: 0;
+  padding: 0;
+  min-height: 100%;
+}
+
+body {
+  color: var(--ink);
+  font-family: var(--el-font-family);
+  background:
+    radial-gradient(1100px 500px at 12% -8%, rgba(15, 76, 140, 0.14), transparent 60%),
+    radial-gradient(900px 480px at 88% 0%, rgba(245, 185, 1, 0.16), transparent 55%),
+    radial-gradient(700px 500px at 55% 110%, rgba(74, 127, 181, 0.12), transparent 60%),
+    linear-gradient(160deg, #eef5fc 0%, #f7fafd 42%, #fdf9ee 100%);
+  background-attachment: fixed;
+  -webkit-font-smoothing: antialiased;
+}
+
+::selection {
+  background: rgba(245, 185, 1, 0.35);
+}
+
+/* ---------- 滚动条 ---------- */
+::-webkit-scrollbar {
+  width: 8px;
+  height: 8px;
+}
+::-webkit-scrollbar-thumb {
+  background: rgba(15, 76, 140, 0.22);
+  border-radius: 8px;
+}
+::-webkit-scrollbar-thumb:hover {
+  background: rgba(15, 76, 140, 0.38);
+}
+::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+/* ---------- 玻璃拟态 ----------
+   边框工艺学习自参考站（sharellm）：
+   1px 浅灰描边 + 顶部/左侧 1px 白色内发光边缘 + 蓝灰大软阴影（--sl-shadow-content） */
+.glass {
+  background: linear-gradient(135deg, rgba(255, 255, 255, 0.82) 0%, rgba(239, 247, 255, 0.55) 100%);
+  backdrop-filter: blur(16px);
+  -webkit-backdrop-filter: blur(16px);
+  border: 1px solid rgba(232, 232, 232, 0.9);
+  border-radius: 18px;
+  box-shadow:
+    0 20px 50px rgba(38, 48, 74, 0.1),
+    0 4px 13px rgba(38, 48, 74, 0.05),
+    inset 0 1px 0 rgba(255, 255, 255, 1),
+    inset 1px 0 0 rgba(255, 255, 255, 0.52),
+    inset 0 -1px 0 rgba(72, 88, 122, 0.09);
+  transition:
+    transform 0.2s var(--ease-out),
+    box-shadow 0.2s var(--ease-out),
+    background-color 0.2s var(--ease-out);
+}
+.glass-hover:hover {
+  transform: translateY(-2px);
+  box-shadow:
+    0 24px 54px rgba(38, 48, 74, 0.14),
+    0 6px 16px rgba(38, 48, 74, 0.07),
+    inset 0 1px 0 rgba(255, 255, 255, 1),
+    inset 1px 0 0 rgba(255, 255, 255, 0.52),
+    inset 0 -1px 0 rgba(72, 88, 122, 0.09);
+}
+.glass-strong {
+  background: var(--glass-bg-strong);
+  backdrop-filter: blur(20px);
+  -webkit-backdrop-filter: blur(20px);
+}
+
+/* 悬浮胶囊导航 */
+.nav-capsule {
+  background: rgba(255, 255, 255, 0.72);
+  backdrop-filter: blur(22px) saturate(1.4);
+  -webkit-backdrop-filter: blur(22px) saturate(1.4);
+  border: 1px solid rgba(255, 255, 255, 0.7);
+  border-radius: 999px;
+  box-shadow: 0 10px 36px rgba(15, 76, 140, 0.12);
+}
+.blue-gradient {
+  background: linear-gradient(135deg, #0f4c8c 0%, #1f63a0 55%, #4a7fb5 100%);
+}
+.gold-gradient {
+  background: linear-gradient(135deg, #f5b901 0%, #ffd34e 100%);
+}
+.text-gradient {
+  background: linear-gradient(120deg, #0f4c8c 10%, #1f63a0 45%, #d99f00 90%);
+  -webkit-background-clip: text;
+  background-clip: text;
+  color: transparent;
+}
+
+/* ---------- 动效（参考站 keyframes 移植，换校徽配色） ---------- */
+@keyframes appear {
+  from {
+    opacity: 0;
+    transform: translateY(6px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+@keyframes appear-zoom {
+  from {
+    opacity: 0;
+    transform: scale(0.94);
+  }
+  to {
+    opacity: 1;
+    transform: scale(1);
+  }
+}
+@keyframes landing-fade-up {
+  from {
+    opacity: 0;
+    transform: translateY(22px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+@keyframes landing-fade-left {
+  from {
+    opacity: 0;
+    transform: translateX(-26px);
+  }
+  to {
+    opacity: 1;
+    transform: translateX(0);
+  }
+}
+@keyframes landing-fade-right {
+  from {
+    opacity: 0;
+    transform: translateX(26px);
+  }
+  to {
+    opacity: 1;
+    transform: translateX(0);
+  }
+}
+@keyframes table-row-enter {
+  from {
+    opacity: 0;
+    transform: translateY(10px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+@keyframes skeleton-shimmer {
+  from {
+    background-position: 200% 0;
+  }
+  to {
+    background-position: -200% 0;
+  }
+}
+/* 氛围光带：高亮横幅上的流动光（蓝金双色） */
+@keyframes aura-flow-band {
+  0% {
+    background-position: 0% 50%;
+  }
+  50% {
+    background-position: 100% 50%;
+  }
+  100% {
+    background-position: 0% 50%;
+  }
+}
+/* 旋转光环（级别徽章） */
+@keyframes aura-spin {
+  from {
+    transform: rotate(0deg);
+  }
+  to {
+    transform: rotate(360deg);
+  }
+}
+@keyframes pulse-dot {
+  0%,
+  100% {
+    opacity: 1;
+    transform: scale(1);
+  }
+  50% {
+    opacity: 0.55;
+    transform: scale(0.82);
+  }
+}
+
+.animate-appear {
+  animation: appear 0.22s var(--ease-out) both;
+}
+.animate-appear-zoom {
+  animation: appear-zoom 0.25s var(--ease-bounce) both;
+}
+.animate-landing-fade-up {
+  animation: landing-fade-up 0.5s var(--ease-out) both;
+}
+.animate-landing-fade-left {
+  animation: landing-fade-left 0.5s var(--ease-out) both;
+}
+.animate-landing-fade-right {
+  animation: landing-fade-right 0.5s var(--ease-out) both;
+}
+.animate-row-enter {
+  animation: table-row-enter 0.24s var(--ease-out) both;
+}
+.stagger > * {
+  animation: landing-fade-up 0.42s var(--ease-out) both;
+}
+.stagger > *:nth-child(1) { animation-delay: 0.02s; }
+.stagger > *:nth-child(2) { animation-delay: 0.06s; }
+.stagger > *:nth-child(3) { animation-delay: 0.1s; }
+.stagger > *:nth-child(4) { animation-delay: 0.14s; }
+.stagger > *:nth-child(5) { animation-delay: 0.18s; }
+.stagger > *:nth-child(6) { animation-delay: 0.22s; }
+.stagger > *:nth-child(7) { animation-delay: 0.26s; }
+.stagger > *:nth-child(8) { animation-delay: 0.3s; }
+
+.skeleton {
+  background: linear-gradient(90deg, rgba(15, 76, 140, 0.06) 25%, rgba(15, 76, 140, 0.12) 37%, rgba(15, 76, 140, 0.06) 63%);
+  background-size: 200% 100%;
+  animation: skeleton-shimmer 1.4s linear infinite;
+  border-radius: 10px;
+}
+
+/* 高亮横幅（「只看能加分的比赛」等核心入口） */
+.aura-banner {
+  background: linear-gradient(110deg, rgba(15, 76, 140, 0.9) 0%, rgba(31, 99, 160, 0.92) 30%, rgba(217, 159, 0, 0.92) 70%, rgba(245, 185, 1, 0.9) 100%);
+  background-size: 220% 220%;
+  animation: aura-flow-band 7s ease-in-out infinite;
+}
+
+/* ---------- 级别色标（四色体系：蓝金家族 + 区分度扩展） ---------- */
+.level-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  border-radius: 999px;
+  padding: 2px 10px;
+  font-size: 12px;
+  line-height: 18px;
+  font-weight: 600;
+  border: 1px solid transparent;
+}
+.level-INTERNATIONAL {
+  color: #0a2e55;
+  background: linear-gradient(120deg, rgba(10, 46, 85, 0.12), rgba(74, 127, 181, 0.16));
+  border-color: rgba(10, 46, 85, 0.25);
+}
+.level-NATIONAL {
+  color: #0f4c8c;
+  background: rgba(15, 76, 140, 0.1);
+  border-color: rgba(15, 76, 140, 0.28);
+}
+.level-PROVINCIAL {
+  color: #8a5800;
+  background: rgba(245, 185, 1, 0.16);
+  border-color: rgba(217, 159, 0, 0.4);
+}
+.level-SCHOOL {
+  color: #2c7355;
+  background: rgba(64, 153, 117, 0.12);
+  border-color: rgba(64, 153, 117, 0.3);
+}
+
+/* ---------- Element Plus 控件（学习参考站按钮/选项设计） ---------- */
+/* 按钮：白底 + 1px 浅灰描边 + hover 变浅灰 + 按下下沉 1px（active:translate-y-px） */
+.el-button {
+  border-radius: 10px;
+  font-weight: 500;
+  border-color: #e3e8ee;
+  background-color: #fff;
+  color: var(--ink);
+  transition: all 0.15s ease-out;
+  box-shadow: none;
+}
+.el-button:hover,
+.el-button:focus-visible {
+  background-color: #f3f7fc;
+  border-color: #d9e2ec;
+  color: var(--ink);
+}
+.el-button:active {
+  transform: translateY(1px);
+}
+.el-button--primary {
+  background-color: var(--uestc-blue);
+  border-color: var(--uestc-blue);
+  color: #fff;
+}
+.el-button--primary:hover,
+.el-button--primary:focus-visible {
+  background-color: #1a5da8;
+  border-color: #1a5da8;
+  color: #fff;
+}
+.el-button--primary.is-plain,
+.el-button--primary.is-text,
+.el-button--primary.is-link {
+  background-color: transparent;
+  border-color: transparent;
+  color: var(--uestc-blue);
+}
+.el-button--primary.is-plain:hover {
+  background-color: #eef5fc;
+  border-color: rgba(15, 76, 140, 0.35);
+}
+.el-button--warning {
+  background-color: #d99f00;
+  border-color: #d99f00;
+  color: #fff;
+}
+.el-button--warning:hover {
+  background-color: #e8ad10;
+  border-color: #e8ad10;
+  color: #fff;
+}
+.el-button.is-link:hover,
+.el-button.is-text:hover {
+  transform: none;
+  background-color: transparent;
+}
+
+/* 输入框 / 选择器：白底浅灰描边（--border #e8e8e8 一族） */
+.el-input__wrapper,
+.el-textarea__inner,
+.el-select__wrapper {
+  border-radius: 10px;
+  box-shadow: 0 0 0 1px #e3e8ee inset;
+  background: #fff;
+}
+.el-input__wrapper:hover,
+.el-select__wrapper:hover {
+  box-shadow: 0 0 0 1px #c9d6e4 inset;
+}
+.el-input__wrapper.is-focus,
+.el-select__wrapper.is-focused {
+  box-shadow: 0 0 0 1px var(--uestc-blue) inset;
+}
+
+/* 单选按钮组（选项）：分段控件，选中 = 浅蓝底 + 主色字（参考站 is-active 态） */
+.el-radio-button__inner,
+.el-checkbox-button__inner {
+  border-color: #e3e8ee !important;
+  background: #fff;
+  color: var(--ink-soft);
+  box-shadow: none !important;
+  transition: all 0.15s ease-out;
+}
+.el-radio-button__inner:hover,
+.el-checkbox-button__inner:hover {
+  color: var(--uestc-blue);
+}
+.el-radio-button__original-radio:checked + .el-radio-button__inner,
+.el-checkbox-button__original-checkbox:checked + .el-checkbox-button__inner {
+  background: #eef5fc;
+  color: var(--uestc-blue);
+  font-weight: 600;
+  border-color: #d9e2ec !important;
+}
+
+.el-tag {
+  border-radius: 999px;
+}
+
+.el-dialog {
+  border-radius: 18px;
+  border: 1px solid rgba(232, 232, 232, 0.9);
+}
+.el-card {
+  --el-card-border-radius: 18px;
+  border: 1px solid rgba(232, 232, 232, 0.9);
+}
+
+/* 页面切换过渡 */
+.fade-slide-enter-active,
+.fade-slide-leave-active {
+  transition: opacity 0.18s var(--ease-out), transform 0.18s var(--ease-out);
+}
+.fade-slide-enter-from {
+  opacity: 0;
+  transform: translateY(8px);
+}
+.fade-slide-leave-to {
+  opacity: 0;
+  transform: translateY(-6px);
+}
+
+/* 通用容器 */
+.page-wrap {
+  max-width: 1200px;
+  margin: 0 auto;
+  padding: 24px 20px 64px;
+}
+@media (max-width: 768px) {
+  .page-wrap {
+    padding: 16px 14px 80px;
+  }
+}
+
+/* 页脚 */
+.app-footer {
+  text-align: center;
+  color: var(--ink-faint);
+  font-size: 13px;
+  padding: 40px 0 28px;
+}
+.app-footer a {
+  color: var(--ink-soft);
+  text-decoration: none;
+  margin: 0 10px;
+}
+.app-footer a:hover {
+  color: var(--uestc-blue);
+}

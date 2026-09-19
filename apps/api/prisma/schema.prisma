@@ -1,0 +1,623 @@
+// UESTC TeamUp 数据模型
+// 依据 docs/DATA_MODEL.md（v0.3）落地，开放问题按开发计划决策处理：
+// Q2 互评表保留 UI 不做 / Q3 无头像（首字母色块）/ Q6 UserSkill 保留 /
+// Q8 联系方式申请通过后可见 / Q9 isLocked 采纳 / Q11 邮箱 8-16 位放宽在应用层校验
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+// ================= 枚举 =================
+
+enum Level {
+  INTERNATIONAL
+  NATIONAL
+  PROVINCIAL
+  SCHOOL
+}
+
+enum UserRole {
+  STUDENT
+  CONTRIBUTOR
+  ADMIN
+}
+
+enum CompetitionFormat {
+  INDIVIDUAL
+  TEAM
+}
+
+enum Audience {
+  UNDERGRAD
+  POSTGRAD
+  MIXED
+}
+
+enum TeamGoal {
+  PRIZE
+  PRACTICE
+  NATIONAL_FIRST
+  BONUS_ONLY
+}
+
+enum TeamStatus {
+  RECRUITING
+  NEGOTIATING
+  FULL
+  COMPETING
+  DISBANDED
+}
+
+enum RoleType {
+  ALGORITHM
+  FRONTEND
+  BACKEND
+  HARDWARE
+  MODELING
+  UI
+  PAPER
+  DEFENSE
+  OTHER
+}
+
+enum ApplicationStatus {
+  PENDING
+  ACCEPTED
+  REJECTED
+  WITHDRAWN
+}
+
+enum PublishStatus {
+  DRAFT
+  PUBLISHED
+  ARCHIVED
+}
+
+enum SourceHealth {
+  HEALTHY
+  DEGRADED
+  FAILING
+  SUSPENDED
+}
+
+enum MaterialKind {
+  PAST_PAPER
+  OPEN_SOURCE
+  EXPERIENCE
+  TEMPLATE
+}
+
+enum CommentTarget {
+  COMPETITION
+  POST
+  TEAM
+}
+
+enum NotificationKind {
+  DDL_REMINDER
+  APPLICATION_NEW
+  APPLICATION_RESULT
+  INVITATION_NEW
+  COMMENT_REPLY
+  CRAWL_ANOMALY
+  SOURCE_FAILING
+  CORRECTION_NEW
+}
+
+enum RevisionOrigin {
+  CRAWL
+  MANUAL
+  ROLLBACK
+}
+
+enum CorrectionStatus {
+  PENDING
+  ACCEPTED
+  REJECTED
+}
+
+enum SourceKind {
+  ACADEMIC_AFFAIRS
+  COLLEGE
+  COMPETITION_SITE
+  ACADEMY_LIST
+}
+
+enum ParseStrategy {
+  CSS
+  JSON_API
+  REGEX
+}
+
+// ================= 用户 =================
+
+model User {
+  id        String   @id @default(cuid())
+  studentNo String   @unique
+  email     String   @unique
+  // 密码（scrypt 哈希）。可空：首次验证码注册后尚未设置密码
+  passwordHash String?
+  college   String?
+  grade     Int?
+  major     String?
+  nickname  String?
+  bio       String?  @db.Text
+  role      UserRole @default(STUDENT)
+  banned    Boolean  @default(false)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  skills        UserSkill[]
+  teamsLed      Team[]            @relation("TeamLeader")
+  memberships   TeamMember[]
+  applications  Application[]
+  invitations   Invitation[]
+  comments      Comment[]
+  favorites     Favorite[]
+  notifications Notification[]
+  reviewsGiven  Review[]          @relation("Reviewer")
+  reviewsGot    Review[]          @relation("Reviewee")
+  corrections   CorrectionReport[]
+  posts         Post[]
+  materials     CompetitionMaterial[]
+  bans          BanRecord[]       @relation("BannedUser")
+  banActions    BanRecord[]       @relation("BanActor")
+
+  @@index([role])
+}
+
+model UserSkill {
+  userId String
+  skill  String
+  level  Int?
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@id([userId, skill])
+}
+
+// ================= 竞赛雷达 =================
+
+model Competition {
+  id          String  @id @default(cuid())
+  name        String
+  aliases     String[]
+  organizer   String?
+  officialUrl String?
+
+  format      CompetitionFormat?
+  teamSizeMin Int?
+  teamSizeMax Int?
+  audience    Audience?
+  intro       String?  @db.Text
+
+  difficulty Int?
+  effort     Int?
+
+  // 推免加分（独立可选字段，人工维护，爬虫无法获得）
+  isBonusEligible Boolean?
+  bonusCategory   String?
+  bonusPoints     String?
+
+  sourceUrl    String?
+  lastSyncedAt DateTime?
+  status       PublishStatus @default(PUBLISHED)
+  createdAt    DateTime      @default(now())
+  updatedAt    DateTime      @updatedAt
+
+  levels        CompetitionLevel[]
+  timelines     CompetitionTimeline[]
+  tags          CompetitionTag[]
+  awards        CompetitionAward[]
+  materials     CompetitionMaterial[]
+  revisions     CrawlRevision[]
+  anomalies     CrawlAnomaly[]
+  corrections   CorrectionReport[]
+  teams         Team[]
+
+  @@index([status])
+  @@index([updatedAt])
+}
+
+// 级别多值：一个竞赛常有 校赛→省赛→国赛 链路
+model CompetitionLevel {
+  competitionId String
+  level         Level
+
+  competition Competition @relation(fields: [competitionId], references: [id], onDelete: Cascade)
+
+  @@id([competitionId, level])
+  @@index([level])
+}
+
+// 时间节点（日历数据源）
+model CompetitionTimeline {
+  id            String    @id @default(cuid())
+  competitionId String
+  stage         String
+  level         Level?
+  startAt       DateTime?
+  endAt         DateTime?
+
+  isAuto   Boolean @default(false)
+  isLocked Boolean @default(false)
+
+  competition Competition     @relation(fields: [competitionId], references: [id], onDelete: Cascade)
+  revisions   CrawlRevision[]
+
+  @@index([startAt])
+  @@index([endAt])
+  @@index([competitionId])
+}
+
+model CompetitionTag {
+  competitionId String
+  tag           String
+
+  competition Competition @relation(fields: [competitionId], references: [id], onDelete: Cascade)
+
+  @@id([competitionId, tag])
+  @@index([tag])
+}
+
+model CompetitionAward {
+  id            String  @id @default(cuid())
+  competitionId String
+  year          Int?
+  awardName     String?
+  teamName      String?
+  members       String[]
+  sourceUrl     String?
+
+  competition Competition @relation(fields: [competitionId], references: [id], onDelete: Cascade)
+
+  @@index([competitionId])
+}
+
+model CompetitionMaterial {
+  id            String       @id @default(cuid())
+  competitionId String
+  kind          MaterialKind
+  title         String
+  url           String
+  authorId      String?
+
+  competition Competition @relation(fields: [competitionId], references: [id], onDelete: Cascade)
+  author      User?       @relation(fields: [authorId], references: [id])
+
+  @@index([competitionId])
+  @@index([kind])
+}
+
+// ================= 采集子系统（结构预留：流水线本次不实现） =================
+
+model CrawlSource {
+  id            String       @id @default(cuid())
+  name          String
+  url           String
+  kind          SourceKind
+  cron          String
+  parseStrategy ParseStrategy
+  selectorConf  Json
+  enabled       Boolean      @default(true)
+
+  lastRunAt        DateTime?
+  consecutiveFails Int       @default(0)
+  health           SourceHealth @default(HEALTHY)
+
+  snapshots CrawlSnapshot[]
+  items     CrawlItem[]
+  anomalies CrawlAnomaly[]
+}
+
+model CrawlSnapshot {
+  id          String   @id @default(cuid())
+  sourceId    String
+  contentHash String
+  fetchedAt   DateTime @default(now())
+
+  source CrawlSource @relation(fields: [sourceId], references: [id], onDelete: Cascade)
+
+  @@index([sourceId, fetchedAt])
+}
+
+model CrawlItem {
+  id        String   @id @default(cuid())
+  sourceId  String
+  title     String
+  link      String
+  rawText   String?  @db.Text
+  fetchedAt DateTime @default(now())
+  processed Boolean  @default(false)
+
+  source CrawlSource @relation(fields: [sourceId], references: [id], onDelete: Cascade)
+
+  @@index([sourceId, processed])
+}
+
+// 版本记录：CRAWL 预留 / MANUAL 人工修改 / ROLLBACK 回滚动作，供 /admin/revisions 回滚
+model CrawlRevision {
+  id            String   @id @default(cuid())
+  competitionId String?
+  timelineId    String?
+  field         String
+  oldValue      String?  @db.Text
+  newValue      String?  @db.Text
+  origin        RevisionOrigin
+  createdAt     DateTime @default(now())
+
+  competition Competition?        @relation(fields: [competitionId], references: [id], onDelete: SetNull)
+  timeline    CompetitionTimeline? @relation(fields: [timelineId], references: [id], onDelete: SetNull)
+
+  @@index([competitionId, createdAt])
+  @@index([timelineId, createdAt])
+}
+
+model CrawlAnomaly {
+  id            String   @id @default(cuid())
+  sourceId      String?
+  competitionId String?
+  rule          String
+  payload       Json
+  detectedAt    DateTime @default(now())
+  alerted       Boolean  @default(false)
+
+  source      CrawlSource? @relation(fields: [sourceId], references: [id], onDelete: SetNull)
+  competition Competition? @relation(fields: [competitionId], references: [id], onDelete: SetNull)
+
+  @@index([detectedAt])
+}
+
+model CorrectionReport {
+  id            String  @id @default(cuid())
+  competitionId String
+  field         String
+  currentValue  String?
+  proposedValue String?
+  note          String? @db.Text
+  reporterId    String
+  status        CorrectionStatus @default(PENDING)
+  createdAt     DateTime @default(now())
+
+  competition Competition @relation(fields: [competitionId], references: [id], onDelete: Cascade)
+  reporter    User        @relation(fields: [reporterId], references: [id])
+
+  @@index([status, createdAt])
+}
+
+// ================= 队友匹配 =================
+
+model Team {
+  id            String   @id @default(cuid())
+  competitionId String
+  leaderId      String
+  goal          TeamGoal
+
+  requirement String?   @db.Text
+  contact     String?   // 申请通过后站内可见（Q8）
+  deadline    DateTime?
+  teamSize    Int?      // 计划成员人数（发布时先填写）
+  currentSize Int?      // 已有成员人数（发布时手动填写）
+
+  status    TeamStatus @default(RECRUITING)
+  createdAt DateTime   @default(now())
+  updatedAt DateTime   @updatedAt
+
+  competition Competition    @relation(fields: [competitionId], references: [id])
+  leader      User           @relation("TeamLeader", fields: [leaderId], references: [id])
+  members     TeamMember[]
+  slots       TeamSlot[]
+  applications Application[]
+  invitations Invitation[]
+  workspace   Workspace?
+  reviews     Review[]
+
+  @@index([status, competitionId])
+  @@index([deadline])
+  @@index([leaderId])
+}
+
+model TeamMember {
+  id          String   @id @default(cuid())
+  teamId      String
+  userId      String?  // 可为空 = 平台外成员
+  displayName String?
+
+  role    RoleType?
+  rank    String?
+  grade   Int?
+  college String?
+  note    String?
+  joinedAt DateTime @default(now())
+
+  team Team  @relation(fields: [teamId], references: [id], onDelete: Cascade)
+  user User? @relation(fields: [userId], references: [id])
+
+  @@index([teamId])
+  @@index([userId])
+}
+
+model TeamSlot {
+  id     String  @id @default(cuid())
+  teamId String
+  role   RoleType
+  filled Boolean @default(false)
+
+  team Team @relation(fields: [teamId], references: [id], onDelete: Cascade)
+
+  @@index([teamId, role, filled])
+}
+
+model Application {
+  id     String @id @default(cuid())
+  teamId String
+  userId String
+
+  pitch  String?          @db.Text
+  status ApplicationStatus @default(PENDING)
+  reason String?
+  createdAt DateTime     @default(now())
+
+  team Team @relation(fields: [teamId], references: [id], onDelete: Cascade)
+  user User @relation(fields: [userId], references: [id])
+
+  // 同一用户对同一队伍只能有一条 PENDING：应用层事务校验（历史记录可多条）
+  @@index([teamId, userId, status])
+  @@index([userId])
+}
+
+model Invitation {
+  id     String @id @default(cuid())
+  teamId String
+  userId String
+
+  status    ApplicationStatus @default(PENDING)
+  createdAt DateTime          @default(now())
+
+  team Team @relation(fields: [teamId], references: [id], onDelete: Cascade)
+  user User @relation(fields: [userId], references: [id])
+
+  @@index([userId, status])
+  @@index([teamId, status])
+}
+
+// 队伍空间锚点（P2 起各子模块建表）
+model Workspace {
+  id     String @id @default(cuid())
+  teamId String @unique
+
+  team Team @relation(fields: [teamId], references: [id], onDelete: Cascade)
+}
+
+// ================= 横向表 =================
+
+// 经验库（P2，仅建表预留）
+model Post {
+  id       String       @id @default(cuid())
+  authorId String
+  title    String
+  content  String       @db.Text
+  kind     MaterialKind
+  refined  Boolean      @default(false)
+  likes    Int          @default(0)
+  createdAt DateTime    @default(now())
+  updatedAt DateTime    @updatedAt
+
+  author   User      @relation(fields: [authorId], references: [id])
+
+  @@index([authorId])
+  @@index([kind, refined])
+}
+
+// 多态评论：COMPETITION / POST / TEAM（Q7，多态外键无原生支持，靠应用层维护）
+model Comment {
+  id         String       @id @default(cuid())
+  authorId   String
+  targetType CommentTarget
+  targetId   String
+  content    String       @db.Text
+  parentId   String?
+  createdAt  DateTime     @default(now())
+
+  author User @relation(fields: [authorId], references: [id])
+
+  @@index([targetType, targetId, createdAt])
+}
+
+model Favorite {
+  userId     String
+  targetType CommentTarget
+  targetId   String
+  createdAt  DateTime      @default(now())
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@id([userId, targetType, targetId])
+  @@index([targetType, targetId])
+}
+
+model Notification {
+  id        String           @id @default(cuid())
+  userId    String
+  kind      NotificationKind
+  payload   Json
+  readAt    DateTime?
+  createdAt DateTime         @default(now())
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId, readAt])
+  @@index([userId, createdAt])
+}
+
+// 互评（P3 展示，表结构按 Q2 保留）
+model Review {
+  id         String  @id @default(cuid())
+  teamId     String
+  reviewerId String
+  revieweeId String
+
+  reliability   Int?
+  skill         Int?
+  communication Int?
+  comment       String? @db.Text
+  createdAt     DateTime @default(now())
+
+  team     Team @relation(fields: [teamId], references: [id], onDelete: Cascade)
+  reviewer User @relation("Reviewer", fields: [reviewerId], references: [id])
+  reviewee User @relation("Reviewee", fields: [revieweeId], references: [id])
+
+  @@unique([teamId, reviewerId, revieweeId])
+}
+
+// 举报（P2 处理台，仅建表预留）
+model Report {
+  id         String   @id @default(cuid())
+  reporterId String
+  targetType String // TEAM / USER / COMMENT
+  targetId   String
+  reason     String   @db.Text
+  handled    Boolean  @default(false)
+  createdAt  DateTime @default(now())
+
+  @@index([handled, createdAt])
+}
+
+// 发信日志（邮件留空，暂不写入）
+model MailLog {
+  id     String  @id @default(cuid())
+  to     String
+  kind   String
+  status String
+  error  String?
+  sentAt DateTime @default(now())
+}
+
+// 封禁记录（管理后台用）
+model BanRecord {
+  id        String   @id @default(cuid())
+  userId    String
+  actorId   String
+  reason    String?
+  createdAt DateTime @default(now())
+
+  user  User @relation("BannedUser", fields: [userId], references: [id], onDelete: Cascade)
+  actor User @relation("BanActor", fields: [actorId], references: [id])
+}
+
+// 系统公告（管理后台发布，站内横幅展示）
+model Announcement {
+  id        String   @id @default(cuid())
+  title     String
+  content   String   @db.Text
+  active    Boolean  @default(true)
+  createdBy String
+  createdAt DateTime @default(now())
+
+  @@index([active, createdAt])
+}

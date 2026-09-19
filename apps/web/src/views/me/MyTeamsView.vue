@@ -17,10 +17,11 @@ const teams = ref<
     isLeader: boolean;
     competition: { id: string; name: string };
     leader: { id: string; nickname: string | null; college: string | null; grade: number | null; major: string | null };
-    slots: { role: string; filled: boolean }[];
-    members: unknown[];
+    slots: { role: string; status: string }[];
     openRoles: string[];
-    _count?: { applications: number };
+    memberCount: number;
+    remaining: number;
+    targetSize: number;
     pendingCount?: number;
   }[]
 >([]);
@@ -54,12 +55,13 @@ onMounted(async () => {
           :status="t.status"
           :deadline="t.deadline"
           :open-roles="t.openRoles"
-          :member-count="(t.members as unknown[]).length"
+          :member-count="t.memberCount"
+          :target-size="t.targetSize"
           :team-id="t.id"
         />
         <div class="text-12px color-ink-faint mt-8px">
-          <template v-if="t.isLeader && (t._count?.applications || 0) > 0">
-            📥 {{ t._count?.applications }} 条待处理申请 ——
+          <template v-if="t.isLeader && (t.pendingCount || 0) > 0">
+            📥 {{ t.pendingCount }} 条待处理申请 ——
           </template>
           创建于 {{ fmtDate(t.createdAt || '') }}
         </div>

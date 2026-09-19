@@ -1,11 +1,37 @@
-import { Body, Controller, Get, Param, Post, Query } from '@nestjs/common';
-import { IsArray, IsDateString, IsEnum, IsIn, IsInt, IsOptional, IsString, Length, Max, Min } from 'class-validator';
+import { Body, Controller, Get, Param, Patch, Post, Query } from '@nestjs/common';
+import {
+  IsArray,
+  IsDateString,
+  IsEnum,
+  IsIn,
+  IsInt,
+  IsOptional,
+  IsString,
+  Length,
+  Max,
+  Min,
+  ValidateNested,
+} from 'class-validator';
+import { Type } from 'class-transformer';
 import { RoleType, TeamGoal, TeamStatus } from '@teamup/shared';
 import { TransformStringArray } from '../../common/query.transform';
 import { CurrentUser } from '../../common/auth/decorators';
-import { UserSerializer } from '../../common/auth/viewer.context';
 import type { User } from '@prisma/client';
-import { TeamsService, type CreateTeamInput } from './teams.service';
+import { TeamsService, type CreateTeamInput, type TeamTransitionAction } from './teams.service';
+
+class SlotInputDto {
+  @IsEnum(RoleType) role!: RoleType;
+  @IsOptional() @IsString() @Length(0, 200) note?: string;
+}
+
+class ExternalMemberDto {
+  @IsOptional() @IsString() @Length(0, 40) displayName?: string;
+  @IsOptional() @IsEnum(RoleType) role?: RoleType;
+  @IsOptional() @IsString() @Length(0, 40) rank?: string;
+  @IsOptional() @IsInt() @Min(2015) @Max(2035) grade?: number;
+  @IsOptional() @IsString() @Length(0, 40) college?: string;
+  @IsOptional() @IsString() @Length(0, 200) note?: string;
+}
 
 class CreateTeamDto {
   @IsOptional() @IsString() competitionId?: string;
@@ -14,11 +40,8 @@ class CreateTeamDto {
   @IsOptional() @IsString() @Length(0, 2000) requirement?: string;
   @IsOptional() @IsString() @Length(0, 200) contact?: string;
   @IsOptional() @IsDateString() deadline?: string;
-  @IsOptional() @IsInt() @Min(1) @Max(99) teamSize?: number;
-  @IsOptional() @IsInt() @Min(0) @Max(99) currentSize?: number;
-  @IsArray()
-  slots!: { role: RoleType; note?: string }[];
-  @IsOptional() @IsArray() members?: CreateTeamInput['members'];
+  @IsArray() @ValidateNested({ each: true }) @Type(() => SlotInputDto) slots!: SlotInputDto[];
+  @IsOptional() @IsArray() @ValidateNested({ each: true }) @Type(() => ExternalMemberDto) members?: ExternalMemberDto[];
 }
 
 class ListTeamsDto {
@@ -33,33 +56,42 @@ class ListTeamsDto {
 }
 
 class ApplyDto {
+  @IsEnum(RoleType) desiredRole!: RoleType;
   @IsString() @Length(1, 2000, { message: '请填写自我介绍（1-2000 字）' }) pitch!: string;
 }
 
 class ReviewDto {
   @IsString() applicationId!: string;
-  @IsString() action!: 'accept' | 'reject';
+  @IsString() @IsIn(['accept', 'reject']) action!: 'accept' | 'reject';
   @IsOptional() @IsString() @Length(0, 200) reason?: string;
 }
 
 class TransitionDto {
-  @IsString() action!: 'NEGOTIATE' | 'COMPETE' | 'DISBAND' | 'REOPEN';
+  @IsString() @IsIn(['PAUSE', 'RESUME', 'COMPETE', 'ADJUST', 'DISBAND']) action!: TeamTransitionAction;
 }
 
 class InviteDto {
   @IsString() userId!: string;
+  @IsEnum(RoleType) role!: RoleType;
+  @IsOptional() @IsString() @Length(0, 500) message?: string;
 }
 
 class InvitationActionDto {
-  @IsString() action!: 'accept' | 'reject';
+  @IsString() @IsIn(['accept', 'reject']) action!: 'accept' | 'reject';
+}
+
+class TransferLeadershipDto {
+  @IsString() userId!: string;
+}
+
+class UpdateSlotDto {
+  @IsOptional() @IsEnum(RoleType) role?: RoleType;
+  @IsOptional() @IsString() @Length(0, 200) note?: string | null;
 }
 
 @Controller('teams')
 export class TeamsController {
-  constructor(
-    private readonly teams: TeamsService,
-    private readonly serializer: UserSerializer,
-  ) {}
+  constructor(private readonly teams: TeamsService) {}
 
   @Get()
   list(@Query() query: ListTeamsDto) {
@@ -96,8 +128,6 @@ export class TeamsController {
       requirement: dto.requirement,
       contact: dto.contact,
       deadline: dto.deadline ? new Date(dto.deadline) : undefined,
-      teamSize: dto.teamSize,
-      currentSize: dto.currentSize,
       slots: dto.slots ?? [],
       members: dto.members,
     };
@@ -105,83 +135,22 @@ export class TeamsController {
   }
 
   @Get(':id')
-  async detail(@CurrentUser() user: User, @Param('id') id: string) {
-    void user;
-    const team = await this.teams.detail(id);
-
-    const isMember =
-      team.leaderId === user?.id ||
-      user != null && team.members.some((m) => m.userId === user.id);
-    const isLeader = team.leaderId === user?.id;
-
-    // Q8：联系方式申请通过（=入队）后站内可见
-    const contact = isMember ? team.contact : null;
-
-    return {
-      id: team.id,
-      goal: team.goal,
-      status: team.status,
-      requirement: team.requirement,
-      contact,
-      contactVisible: isMember,
-      deadline: team.deadline,
-      teamSize: team.teamSize,
-      currentSize: team.currentSize,
-      createdAt: team.createdAt,
-      competition: {
-        id: team.competition.id,
-        name: team.competition.name,
-        levels: team.competition.levels.map((l) => l.level),
-        officialUrl: team.competition.officialUrl,
-      },
-      leader: this.serializer.serialize({
-        ...team.leader,
-        teamIds: team.leader.memberships.map((m) => m.teamId),
-      }),
-      slots: team.slots,
-      members: team.members.map((m) => ({
-        id: m.id,
-        role: m.role,
-        rank: m.rank,
-        grade: m.grade,
-        college: m.college,
-        note: m.note,
-        displayName: m.displayName,
-        user: m.user
-          ? this.serializer.serialize({
-              ...m.user,
-              teamIds: m.user.memberships.map((x) => x.teamId),
-            })
-          : null,
-      })),
-      applications: isLeader
-        ? team.applications.map((a) => ({
-            id: a.id,
-            pitch: a.pitch,
-            createdAt: a.createdAt,
-            user: this.serializer.serialize({ ...a.user, teamIds: [] }),
-          }))
-        : undefined,
-      invitations: isLeader
-        ? team.invitations.map((i) => ({
-            id: i.id,
-            status: i.status,
-            createdAt: i.createdAt,
-            user: this.serializer.serialize({ ...i.user, teamIds: [] }),
-          }))
-        : undefined,
-      viewer: { isLeader, isMember },
-    };
+  detail(@CurrentUser() user: User, @Param('id') id: string) {
+    return this.teams.detail(id, user?.id, user?.role);
   }
+
+  // ---------- 状态机 ----------
 
   @Post(':id/transition')
   transition(@CurrentUser() user: User, @Param('id') id: string, @Body() dto: TransitionDto) {
     return this.teams.transition(user.id, id, dto.action);
   }
 
+  // ---------- 申请流 ----------
+
   @Post(':id/applications')
   apply(@CurrentUser() user: User, @Param('id') id: string, @Body() dto: ApplyDto) {
-    return this.teams.apply(user.id, id, dto.pitch);
+    return this.teams.apply(user.id, id, dto.desiredRole, dto.pitch);
   }
 
   @Post('applications/review')
@@ -194,13 +163,49 @@ export class TeamsController {
     return this.teams.withdraw(user.id, id);
   }
 
+  // ---------- 邀请流 ----------
+
   @Post(':id/invitations')
   invite(@CurrentUser() user: User, @Param('id') id: string, @Body() dto: InviteDto) {
-    return this.teams.invite(user.id, id, dto.userId);
+    return this.teams.invite(user.id, id, dto.userId, dto.role, dto.message);
   }
 
   @Post('invitations/:id/respond')
   respondInvitation(@CurrentUser() user: User, @Param('id') id: string, @Body() dto: InvitationActionDto) {
     return this.teams.respondInvitation(user.id, id, dto.action === 'accept');
+  }
+
+  // ---------- 成员生命周期 ----------
+
+  @Post(':id/leave')
+  leave(@CurrentUser() user: User, @Param('id') id: string) {
+    return this.teams.leaveTeam(user.id, id);
+  }
+
+  @Post(':id/members/:memberId/remove')
+  removeMember(@CurrentUser() user: User, @Param('id') id: string, @Param('memberId') memberId: string) {
+    return this.teams.removeMember(user.id, id, memberId);
+  }
+
+  @Post(':id/transfer-leadership')
+  transferLeadership(@CurrentUser() user: User, @Param('id') id: string, @Body() dto: TransferLeadershipDto) {
+    return this.teams.transferLeadership(user.id, id, dto.userId);
+  }
+
+  // ---------- TeamSlot 编辑 ----------
+
+  @Post(':id/slots')
+  addSlot(@CurrentUser() user: User, @Param('id') id: string, @Body() dto: SlotInputDto) {
+    return this.teams.addSlot(user.id, id, dto.role, dto.note);
+  }
+
+  @Patch(':id/slots/:slotId')
+  updateSlot(@CurrentUser() user: User, @Param('id') id: string, @Param('slotId') slotId: string, @Body() dto: UpdateSlotDto) {
+    return this.teams.updateSlot(user.id, id, slotId, { role: dto.role, note: dto.note });
+  }
+
+  @Post(':id/slots/:slotId/close')
+  closeSlot(@CurrentUser() user: User, @Param('id') id: string, @Param('slotId') slotId: string) {
+    return this.teams.closeSlot(user.id, id, slotId);
   }
 }

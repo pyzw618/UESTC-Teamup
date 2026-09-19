@@ -50,10 +50,30 @@ export interface CompetitionDetail extends CompetitionListItem {
     endAt: string | null;
     isLocked: boolean;
   }[];
+  /** 正在招募的队伍数量（游客亦可获取） */
+  recruitingTeamsCount?: number;
   awards: { id: string; year: number | null; awardName: string | null; teamName: string | null; members: string[] }[];
   materials: { id: string; kind: string; title: string; url: string }[];
   recruitingTeamsList?: TeamSummary[];
   createdAt: string;
+}
+
+export type SlotStatusValue = 'OPEN' | 'FILLED' | 'CLOSED';
+
+export interface TeamSlotView {
+  id: string;
+  role: string;
+  status: SlotStatusValue;
+  note?: string | null;
+}
+
+export interface TeamLeaderView {
+  id: string;
+  nickname: string | null;
+  college: string | null;
+  grade: number | null;
+  major: string | null;
+  studentNo?: string;
 }
 
 export interface TeamSummary {
@@ -61,10 +81,13 @@ export interface TeamSummary {
   goal: string;
   status: string;
   deadline: string | null;
-  slots: { id: string; role: string; filled: boolean }[];
+  slots: TeamSlotView[];
+  openRoles: string[];
   memberCount: number;
+  remaining: number;
+  targetSize: number;
   pendingCount?: number;
-  leader: { id: string; nickname: string | null; college: string | null; grade: number | null; major: string | null };
+  leader: TeamLeaderView;
 }
 
 export interface TeamListItem {
@@ -72,14 +95,15 @@ export interface TeamListItem {
   goal: string;
   status: string;
   deadline: string | null;
-  teamSize: number | null;
-  currentSize: number | null;
   expired: boolean;
   competition: { id: string; name: string };
-  leader: { id: string; nickname: string | null; college: string | null; grade: number | null; major: string | null };
-  slots: { id: string; role: string; filled: boolean }[];
+  leader: TeamLeaderView;
+  slots: TeamSlotView[];
   openRoles: string[];
+  /** 以下均为服务端由 TeamMember / TeamSlot 实时推导，不使用手填字段 */
   memberCount: number;
+  remaining: number;
+  targetSize: number;
   pendingCount: number;
   createdAt: string;
 }

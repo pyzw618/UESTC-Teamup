@@ -45,12 +45,15 @@ enum TeamGoal {
   BONUS_ONLY
 }
 
+// Team 生命周期状态机。注意：NEGOTIATING 已被 PAUSED 取代（见迁移说明），
+// 正常比赛结束归档是 ARCHIVED，只有队长主动解散才是 DISBANDED。
 enum TeamStatus {
   RECRUITING
-  NEGOTIATING
+  PAUSED
   FULL
   COMPETING
   DISBANDED
+  ARCHIVED
 }
 
 enum RoleType {
@@ -65,11 +68,20 @@ enum RoleType {
   OTHER
 }
 
+// 招募名额状态：OPEN=仍需招人，FILLED=已被成员占据，CLOSED=队长取消该需求。
+enum SlotStatus {
+  OPEN
+  FILLED
+  CLOSED
+}
+
 enum ApplicationStatus {
   PENDING
   ACCEPTED
   REJECTED
   WITHDRAWN
+  // EXPIRED：因队伍满员/解散/归档，或同竞赛已加入其他队伍而自动失效
+  EXPIRED
 }
 
 enum PublishStatus {
@@ -107,6 +119,8 @@ enum NotificationKind {
   CRAWL_ANOMALY
   SOURCE_FAILING
   CORRECTION_NEW
+  MEMBER_LEFT
+  MEMBER_REMOVED
 }
 
 enum RevisionOrigin {
@@ -401,12 +415,15 @@ model Team {
   requirement String?   @db.Text
   contact     String?   // 申请通过后站内可见（Q8）
   deadline    DateTime?
-  teamSize    Int?      // 计划成员人数（发布时先填写）
-  currentSize Int?      // 已有成员人数（发布时手动填写）
 
-  status    TeamStatus @default(RECRUITING)
-  createdAt DateTime   @default(now())
-  updatedAt DateTime   @updatedAt
+  // 人数不再落库：当前人数 = 活跃 TeamMember 数，剩余 = OPEN Slot 数，目标 = 二者之和。
+  // 旧的 teamSize/currentSize 已删除（见迁移），避免与真实关系漂移。
+
+  status     TeamStatus @default(RECRUITING)
+  // 正常生命周期归档时间（cron 写入），DISBANDED 不使用该字段
+  archivedAt DateTime?
+  createdAt  DateTime   @default(now())
+  updatedAt  DateTime   @updatedAt
 
   competition Competition    @relation(fields: [competitionId], references: [id])
   leader      User           @relation("TeamLeader", fields: [leaderId], references: [id])
@@ -422,10 +439,17 @@ model Team {
   @@index([leaderId])
 }
 
+// TeamMember 是“当前团队成员关系”的唯一事实来源。
+// userId != null 为注册用户；userId == null 为队长录入的平台外成员。
+// 平台注册用户只能通过 Application 接受 / Invitation 接受进入本表，
+// 不能由队长直接传入 userId 创建。
 model TeamMember {
   id          String   @id @default(cuid())
   teamId      String
   userId      String?  // 可为空 = 平台外成员
+  // 冗余自 Team.competitionId：用于数据库层保证“同一竞赛仅一个有效团队”
+  // （唯一索引无法跨表引用 Team.competitionId，见迁移中的部分唯一索引）
+  competitionId String
   displayName String?
 
   role    RoleType?
@@ -433,24 +457,42 @@ model TeamMember {
   grade   Int?
   college String?
   note    String?
-  joinedAt DateTime @default(now())
+
+  // active=false 表示已退出/被移除（保留历史，不再计入当前人数与同竞赛唯一性）
+  active   Boolean   @default(true)
+  joinedAt DateTime  @default(now())
+  leftAt   DateTime?
 
   team Team  @relation(fields: [teamId], references: [id], onDelete: Cascade)
   user User? @relation(fields: [userId], references: [id])
+  // 该成员占据的 slot（1-1，见 TeamSlot.filledByMemberId 唯一约束）
+  filledSlot TeamSlot? @relation("SlotFilledBy")
 
-  @@index([teamId])
-  @@index([userId])
+  // 同一队伍同一用户不允许重复成员行（平台外成员 userId 为空，Postgres 允许多个 NULL）
+  @@unique([teamId, userId])
+  @@index([teamId, active])
+  @@index([userId, active])
+  @@index([competitionId, active])
 }
 
+// 一个 TeamSlot = 一个真实、最多只能由一个成员占据的招募名额。
 model TeamSlot {
-  id     String  @id @default(cuid())
+  id     String     @id @default(cuid())
   teamId String
   role   RoleType
-  filled Boolean @default(false)
+  // 该名额的额外说明（队长可编辑，仅未 FILLED 时）
+  note   String?
+  status SlotStatus @default(OPEN)
 
-  team Team @relation(fields: [teamId], references: [id], onDelete: Cascade)
+  // 占据该名额的成员；唯一约束保证一个成员最多占据一个 slot
+  filledByMemberId String?   @unique
+  filledAt         DateTime?
+  createdAt        DateTime  @default(now())
 
-  @@index([teamId, role, filled])
+  team           Team        @relation(fields: [teamId], references: [id], onDelete: Cascade)
+  filledByMember TeamMember? @relation("SlotFilledBy", fields: [filledByMemberId], references: [id], onDelete: SetNull)
+
+  @@index([teamId, role, status])
 }
 
 model Application {
@@ -458,30 +500,37 @@ model Application {
   teamId String
   userId String
 
-  pitch  String?          @db.Text
+  // 申请人期望的方向（不指定具体 slot id）；接受时只占用 role 匹配的 OPEN slot
+  desiredRole RoleType
+  pitch  String?           @db.Text
   status ApplicationStatus @default(PENDING)
   reason String?
-  createdAt DateTime     @default(now())
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
 
   team Team @relation(fields: [teamId], references: [id], onDelete: Cascade)
   user User @relation(fields: [userId], references: [id])
 
-  // 同一用户对同一队伍只能有一条 PENDING：应用层事务校验（历史记录可多条）
+  // 同一用户对同一队伍最多一条 PENDING（部分唯一索引，见迁移）
   @@index([teamId, userId, status])
-  @@index([userId])
+  @@index([userId, status])
 }
 
 model Invitation {
   id     String @id @default(cuid())
   teamId String
-  userId String
+  userId String   // 被邀请人
 
+  // 邀请同样必须指定方向；接受后进入与申请审批完全一致的加入流程
+  role      RoleType
+  message   String?
   status    ApplicationStatus @default(PENDING)
   createdAt DateTime          @default(now())
 
   team Team @relation(fields: [teamId], references: [id], onDelete: Cascade)
   user User @relation(fields: [userId], references: [id])
 
+  // 同一用户对同一队伍最多一条 PENDING（部分唯一索引，见迁移）
   @@index([userId, status])
   @@index([teamId, status])
 }

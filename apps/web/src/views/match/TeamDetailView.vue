@@ -1,13 +1,26 @@
 <script setup lang="ts">
-import { ref, onMounted, computed } from 'vue';
+import { ref, computed, onMounted } from 'vue';
 import { useRoute, useRouter } from 'vue-router';
 import { ElMessage, ElMessageBox } from 'element-plus';
-import { RoleType, RoleTypeLabel, TeamGoalLabel, TeamStatusLabel, TeamGoal, TeamStatus, ApplicationStatus } from '@teamup/shared';
+import { RoleType, RoleTypeLabel, TeamGoalLabel, TeamStatusLabel, TeamGoal, TeamStatus } from '@teamup/shared';
 import { api } from '../../api/client';
-import { fmtDate, daysLeft } from '../../api/types';
+import { fmtDate, daysLeft, type TeamSlotView } from '../../api/types';
 import UserAvatar from '../../components/UserAvatar.vue';
 import FrostedGate from '../../components/FrostedGate.vue';
 import { useAuthStore } from '../../stores/auth';
+
+interface MemberView {
+  id: string;
+  role: RoleType | null;
+  rank: string | null;
+  grade: number | null;
+  college: string | null;
+  note: string | null;
+  displayName: string | null;
+  userId: string | null;
+  isLeader: boolean;
+  user: { id: string; nickname: string | null; college: string | null; grade: number | null; major: string | null; studentNo?: string } | null;
+}
 
 interface TeamDetail {
   id: string;
@@ -17,24 +30,17 @@ interface TeamDetail {
   contact: string | null;
   contactVisible: boolean;
   deadline: string | null;
-  teamSize?: number | null;
-  currentSize?: number | null;
+  memberCount: number;
+  remaining: number;
+  targetSize: number;
+  openRoles: RoleType[];
   createdAt: string;
   competition: { id: string; name: string; levels: string[]; officialUrl: string | null };
   leader: { id: string; nickname: string | null; college: string | null; grade: number | null; major: string | null; studentNo?: string };
-  slots: { id: string; role: RoleType; filled: boolean }[];
-  members: {
-    id: string;
-    role: RoleType | null;
-    rank: string | null;
-    grade: number | null;
-    college: string | null;
-    note: string | null;
-    displayName: string | null;
-    user: { id: string; nickname: string | null; college: string | null; grade: number | null; major: string | null; studentNo?: string; contact?: string | null } | null;
-  }[];
-  applications?: { id: string; pitch: string; createdAt: string; user: { id: string; nickname: string | null; college: string | null; grade: number | null; studentNo?: string } }[];
-  invitations?: { id: string; status: string; createdAt: string; user: { id: string; nickname: string | null } }[];
+  slots: TeamSlotView[];
+  members: MemberView[];
+  applications?: { id: string; desiredRole: RoleType; pitch: string; status: string; createdAt: string; user: { id: string; nickname: string | null; college: string | null; grade: number | null; studentNo?: string } }[];
+  invitations?: { id: string; role: RoleType; message: string | null; status: string; createdAt: string; user: { id: string; nickname: string | null } }[];
   viewer: { isLeader: boolean; isMember: boolean };
 }
 
@@ -47,6 +53,7 @@ const loading = ref(true);
 
 // 申请弹窗
 const applyVisible = ref(false);
+const applyRole = ref<RoleType | undefined>(undefined);
 const pitch = ref('');
 const applying = ref(false);
 
@@ -56,16 +63,44 @@ const rejectReason = ref('');
 const rejectTemplates = ['队伍已经招满了', '你的技能方向和我们的缺口不太匹配', '我们已经找到合适的队友了'];
 const rejectingId = ref('');
 
+// 新增名额
+const addSlotRole = ref<RoleType | null>(null);
+
 const remaining = computed(() => {
   if (!team.value?.deadline) return null;
   const d = daysLeft(team.value.deadline);
   return d != null && d >= 0 ? d : null;
 });
 
-const expired = computed(() => team.value?.deadline ? new Date(team.value.deadline) < new Date() : false);
+const expired = computed(() => (team.value?.deadline ? new Date(team.value.deadline) < new Date() : false));
+
+/** 仍可申请的 OPEN 方向及其剩余数量 */
+const openRoleOptions = computed(() => {
+  const map = new Map<RoleType, number>();
+  for (const s of team.value?.slots ?? []) {
+    if (s.status === 'OPEN') map.set(s.role as RoleType, (map.get(s.role as RoleType) ?? 0) + 1);
+  }
+  return [...map.entries()].map(([role, count]) => ({ role, count }));
+});
+
+/** 按 role 聚合展示：算法 ×2（剩 1） */
+const slotGroups = computed(() => {
+  const groups = new Map<RoleType, { total: number; open: number; filled: number; closed: number }>();
+  for (const s of team.value?.slots ?? []) {
+    const g = groups.get(s.role as RoleType) ?? { total: 0, open: 0, filled: 0, closed: 0 };
+    g.total += 1;
+    if (s.status === 'OPEN') g.open += 1;
+    else if (s.status === 'FILLED') g.filled += 1;
+    else g.closed += 1;
+    groups.set(s.role as RoleType, g);
+  }
+  return [...groups.entries()].map(([role, g]) => ({ role, ...g }));
+});
+
+const roleLabel = (r: RoleType | string) => RoleTypeLabel[r as RoleType] ?? r;
+const roleOptions = Object.values(RoleType).map((r) => ({ value: r, label: RoleTypeLabel[r] }));
 
 async function load() {
-  // 队友招募信息仅登录可见
   if (!auth.isLoggedIn) {
     loading.value = false;
     return;
@@ -83,11 +118,16 @@ async function load() {
 onMounted(load);
 
 async function submitApply() {
+  if (!applyRole.value) {
+    ElMessage.warning('请选择申请方向');
+    return;
+  }
   applying.value = true;
   try {
-    await api.post(`/teams/${team.value!.id}/applications`, { pitch: pitch.value.trim() });
+    await api.post(`/teams/${team.value!.id}/applications`, { desiredRole: applyRole.value, pitch: pitch.value.trim() });
     applyVisible.value = false;
     pitch.value = '';
+    applyRole.value = undefined;
     ElMessage.success('申请已提交，队长会尽快处理');
     load();
   } catch (e) {
@@ -105,7 +145,6 @@ async function review(applicationId: string, action: 'accept' | 'reject') {
     return;
   }
   await doReview(applicationId, 'accept', '');
-  rejectVisible.value = false;
 }
 
 async function doReview(applicationId: string, action: string, reason: string) {
@@ -119,20 +158,100 @@ async function doReview(applicationId: string, action: string, reason: string) {
   }
 }
 
-async function transition(action: 'NEGOTIATE' | 'COMPETE' | 'DISBAND' | 'REOPEN') {
-  const labels = { NEGOTIATE: '转为沟通中', COMPETE: '标记为已参赛', DISBAND: '解散队伍', REOPEN: '重新开启招募' };
-  await ElMessageBox.confirm(`确认${labels[action]}？`, '确认操作', { type: action === 'DISBAND' ? 'warning' : 'info' });
-  await api.post(`/teams/${team.value!.id}/transition`, { action });
-  ElMessage.success('已更新');
-  load();
+const TRANSITION_LABELS: Record<string, string> = {
+  PAUSE: '暂停招募',
+  RESUME: '恢复招募',
+  COMPETE: '进入参赛',
+  ADJUST: '重新调整阵容',
+  DISBAND: '解散队伍',
+};
+
+async function transition(action: 'PAUSE' | 'RESUME' | 'COMPETE' | 'ADJUST' | 'DISBAND') {
+  const tips: Record<string, string> = {
+    PAUSE: '暂停后将不再接收新的申请与邀请，已有候选人仍可处理。',
+    RESUME: '恢复公开招募。',
+    COMPETE: '进入参赛后阵容锁定，不再接收申请/邀请，成员可主动退出。',
+    ADJUST: '回到「暂停招募」，之后可自行决定是否恢复公开招募。',
+    DISBAND: '解散后所有未处理的申请与邀请将失效，且不可恢复。',
+  };
+  await ElMessageBox.confirm(tips[action], `${TRANSITION_LABELS[action]}？`, {
+    type: action === 'DISBAND' ? 'warning' : 'info',
+  });
+  try {
+    await api.post(`/teams/${team.value!.id}/transition`, { action });
+    ElMessage.success('已更新');
+    load();
+  } catch (e) {
+    ElMessage.error(e instanceof Error ? e.message : '操作失败');
+  }
+}
+
+async function leaveTeam() {
+  await ElMessageBox.confirm('退出后你的名额会重新开放，确定退出吗？', '退出队伍', { type: 'warning' });
+  try {
+    await api.post(`/teams/${team.value!.id}/leave`);
+    ElMessage.success('已退出队伍');
+    load();
+  } catch (e) {
+    ElMessage.error(e instanceof Error ? e.message : '操作失败');
+  }
+}
+
+async function kickMember(m: MemberView) {
+  await ElMessageBox.confirm(`确定移除「${m.user?.nickname || m.displayName || '该成员'}」吗？`, '移除成员', { type: 'warning' });
+  try {
+    await api.post(`/teams/${team.value!.id}/members/${m.id}/remove`);
+    ElMessage.success('已移除');
+    load();
+  } catch (e) {
+    ElMessage.error(e instanceof Error ? e.message : '操作失败');
+  }
+}
+
+async function transferLeadership(m: MemberView) {
+  if (!m.userId) return;
+  await ElMessageBox.confirm(`把队长转让给「${m.user?.nickname || '该成员'}」？`, '转让队长', { type: 'info' });
+  try {
+    await api.post(`/teams/${team.value!.id}/transfer-leadership`, { userId: m.userId });
+    ElMessage.success('已转让队长');
+    load();
+  } catch (e) {
+    ElMessage.error(e instanceof Error ? e.message : '操作失败');
+  }
+}
+
+async function addSlot() {
+  if (!addSlotRole.value) {
+    ElMessage.warning('请选择方向');
+    return;
+  }
+  try {
+    await api.post(`/teams/${team.value!.id}/slots`, { role: addSlotRole.value });
+    addSlotRole.value = null;
+    ElMessage.success('已新增名额');
+    load();
+  } catch (e) {
+    ElMessage.error(e instanceof Error ? e.message : '操作失败');
+  }
+}
+
+async function closeSlot(slotId: string) {
+  try {
+    await api.post(`/teams/${team.value!.id}/slots/${slotId}/close`);
+    ElMessage.success('已关闭该名额');
+    load();
+  } catch (e) {
+    ElMessage.error(e instanceof Error ? e.message : '操作失败');
+  }
 }
 
 const statusType = computed(() => {
   switch (team.value?.status) {
     case 'RECRUITING': return 'success';
-    case 'NEGOTIATING': return 'warning';
+    case 'PAUSED': return 'warning';
     case 'FULL': return 'info';
     case 'COMPETING': return 'primary';
+    case 'DISBANDED': return 'danger';
     default: return 'info';
   }
 });
@@ -144,8 +263,20 @@ const canApply = computed(
     !team.value?.viewer.isMember &&
     !team.value?.viewer.isLeader &&
     team.value?.status === TeamStatus.RECRUITING &&
-    !expired.value,
+    !expired.value &&
+    openRoleOptions.value.length > 0,
 );
+
+/** 队长可见的状态机操作 */
+const leaderActions = computed<('PAUSE' | 'RESUME' | 'COMPETE' | 'ADJUST' | 'DISBAND')[]>(() => {
+  switch (team.value?.status) {
+    case 'RECRUITING': return ['PAUSE', 'COMPETE', 'DISBAND'];
+    case 'PAUSED': return ['RESUME', 'COMPETE', 'DISBAND'];
+    case 'FULL': return ['COMPETE', 'DISBAND'];
+    case 'COMPETING': return ['ADJUST', 'DISBAND'];
+    default: return [];
+  }
+});
 </script>
 
 <template>
@@ -185,21 +316,27 @@ const canApply = computed(
               >{{ remaining === 0 ? '今天截止' : `招募剩 ${remaining} 天` }}</span>
               <span v-else-if="expired" class="chip" style="background:rgba(0,0,0,0.06);color:var(--ink-faint)">已截止</span>
             </div>
-            <!-- 关联竞赛卡（双向联动的另一半） -->
             <div
               class="text-18px font-bold color-uestc-600 cursor-pointer hover:underline"
               @click="router.push(`/competitions/${team.competition.id}`)"
             >{{ team.competition.name }}</div>
-            <div class="text-12px color-ink-faint mt-2px">发布于 {{ fmtDate(team.createdAt) }}</div>
+            <div class="text-12px color-ink-faint mt-2px">
+              发布于 {{ fmtDate(team.createdAt) }} · 当前成员 {{ team.memberCount }} / 目标 {{ team.targetSize }} 人（还剩 {{ team.remaining }} 个名额）
+            </div>
           </div>
           <div class="flex gap-8px shrink-0 flex-wrap justify-end">
             <el-button v-if="canApply" type="primary" round @click="applyVisible = true">申请加入</el-button>
             <template v-if="team.viewer.isLeader">
-              <el-button v-if="team.status === 'RECRUITING'" size="default" @click="transition('NEGOTIATE')">开启沟通</el-button>
-              <el-button v-if="team.status === 'NEGOTIATING'" size="default" @click="transition('REOPEN')">重新招募</el-button>
-              <el-button v-if="team.status !== 'COMPETING' && team.status !== 'DISBANDED'" type="warning" plain @click="transition('COMPETE')">标记参赛</el-button>
-              <el-button v-if="team.status !== 'DISBANDED'" type="danger" plain @click="transition('DISBAND')">解散</el-button>
+              <el-button
+                v-for="a in leaderActions"
+                :key="a"
+                size="default"
+                :type="a === 'DISBAND' ? 'danger' : a === 'COMPETE' ? 'warning' : 'default'"
+                :plain="a === 'DISBAND' || a === 'COMPETE'"
+                @click="transition(a)"
+              >{{ TRANSITION_LABELS[a] }}</el-button>
             </template>
+            <el-button v-else-if="team.viewer.isMember" type="danger" plain @click="leaveTeam">退出队伍</el-button>
           </div>
         </div>
       </section>
@@ -224,28 +361,47 @@ const canApply = computed(
         </section>
       </div>
 
-      <!-- 缺位情况 -->
+      <!-- 缺位情况（按 role 聚合） -->
       <section class="glass p-20px">
-        <h2 class="text-15px font-bold m-0 mb-12px">🧩 缺位情况</h2>
+        <div class="flex items-center justify-between mb-12px flex-wrap gap-8px">
+          <h2 class="text-15px font-bold m-0">🧩 缺口情况</h2>
+          <div v-if="team.viewer.isLeader && team.status !== 'COMPETING' && team.status !== 'DISBANDED' && team.status !== 'ARCHIVED'" class="flex gap-6px items-center">
+            <el-select v-model="addSlotRole" placeholder="新增方向" size="small" style="width: 130px">
+              <el-option v-for="r in roleOptions" :key="r.value" :value="r.value" :label="r.label" />
+            </el-select>
+            <el-button size="small" round @click="addSlot">+ 新增名额</el-button>
+          </div>
+        </div>
         <div class="flex gap-8px flex-wrap">
-          <template v-if="team.slots.length">
+          <template v-if="slotGroups.length">
             <div
-              v-for="s in team.slots"
-              :key="s.id"
+              v-for="g in slotGroups"
+              :key="g.role"
               class="slot-pill"
-              :class="{ filled: s.filled }"
+              :class="{ filled: g.open === 0 && g.filled > 0 }"
             >
-              {{ RoleTypeLabel[s.role] }}
-              <span class="ml-2px">{{ s.filled ? '✓' : '空缺' }}</span>
+              {{ roleLabel(g.role) }} ×{{ g.total }}
+              <span class="ml-2px">（剩 {{ g.open }}）</span>
             </div>
           </template>
           <span v-else class="text-13px color-ink-faint">未设置角色缺口</span>
+        </div>
+        <!-- 队长：逐条关闭 OPEN 名额 -->
+        <div v-if="team.viewer.isLeader && team.slots.some((s) => s.status === 'OPEN')" class="mt-12px flex flex-col gap-6px">
+          <div
+            v-for="s in team.slots.filter((x) => x.status === 'OPEN')"
+            :key="s.id"
+            class="flex items-center gap-8px text-12px color-ink-soft"
+          >
+            <span>{{ roleLabel(s.role) }}<template v-if="s.note"> · {{ s.note }}</template></span>
+            <el-button size="small" text type="danger" @click="closeSlot(s.id)">关闭该名额</el-button>
+          </div>
         </div>
       </section>
 
       <!-- 已有成员情况 -->
       <section class="glass p-20px">
-        <h2 class="text-15px font-bold m-0 mb-12px">👥 已有成员（{{ team.currentSize ?? team.members.length }}<template v-if="team.teamSize">/{{ team.teamSize }}</template>）</h2>
+        <h2 class="text-15px font-bold m-0 mb-12px">👥 已有成员（{{ team.memberCount }} / 目标 {{ team.targetSize }}）</h2>
         <div class="flex flex-col gap-10px">
           <div v-for="m in team.members" :key="m.id" class="flex items-center gap-10px flex-wrap">
             <UserAvatar :name="m.user?.nickname || m.displayName || 'U'" :size="34" />
@@ -254,15 +410,19 @@ const canApply = computed(
                 {{ m.user.nickname || '同学' }}
               </router-link>
               <span v-else class="font-semibold color-ink">{{ m.displayName || '平台外成员' }}</span>
+              <el-tag v-if="m.isLeader" size="small" round effect="plain" class="ml-6px">队长</el-tag>
               <span class="color-ink-soft">
-                <template v-if="m.role"> · {{ RoleTypeLabel[m.role] }}</template>
+                <template v-if="m.role"> · {{ roleLabel(m.role) }}</template>
                 <template v-if="m.college || m.user?.college"> · {{ m.college || m.user?.college }}</template>
                 <template v-if="m.grade || m.user?.grade"> · {{ m.grade || m.user?.grade }} 级</template>
                 <template v-if="m.rank"> · 排名 {{ m.rank }}</template>
-                <template v-if="m.note"> · {{ m.note }}</template>
-                <template v-if="m.note === '队长'"></template>
+                <template v-if="m.note && m.note !== '队长'"> · {{ m.note }}</template>
               </span>
               <div v-if="m.user?.studentNo" class="text-12px color-ink-faint">学号 {{ m.user.studentNo }}（同队可见）</div>
+            </div>
+            <div v-if="team.viewer.isLeader && !m.isLeader" class="ml-auto flex gap-6px">
+              <el-button v-if="m.userId" size="small" round @click="transferLeadership(m)">转让队长</el-button>
+              <el-button size="small" round type="danger" plain @click="kickMember(m)">移除</el-button>
             </div>
           </div>
         </div>
@@ -273,10 +433,11 @@ const canApply = computed(
         <h2 class="text-15px font-bold m-0 mb-12px">📥 收到的申请（{{ team.applications.length }}）</h2>
         <div class="flex flex-col gap-12px">
           <div v-for="a in team.applications" :key="a.id" class="rounded-14px p-12px" style="background: rgba(255,255,255,0.5)">
-            <div class="flex items-center gap-8px mb-6px">
+            <div class="flex items-center gap-8px mb-6px flex-wrap">
               <UserAvatar :name="a.user.nickname || 'U'" :size="28" />
               <span class="text-13px font-semibold color-ink">{{ a.user.nickname || '同学' }}</span>
               <span class="text-12px color-ink-faint">{{ a.user.college || '' }} {{ a.user.grade ? `· ${a.user.grade} 级` : '' }}</span>
+              <el-tag size="small" effect="plain" round>申请方向：{{ roleLabel(a.desiredRole) }}</el-tag>
               <span class="text-12px color-ink-faint">{{ fmtDate(a.createdAt) }}</span>
               <div class="ml-auto flex gap-6px">
                 <el-button size="small" type="primary" round @click="review(a.id, 'accept')">同意</el-button>
@@ -290,10 +451,10 @@ const canApply = computed(
 
       <!-- 队长视角：发出的邀请 -->
       <section v-if="team.viewer.isLeader && team.invitations?.length" class="glass p-20px">
-        <h2 class="text-15px font-bold m-0 mb-12px">📤 发出的邀请</h2>
+        <h2 class="text-15px font-bold m-0 mb-12px">📤 待回应的邀请</h2>
         <div class="flex gap-8px flex-wrap">
           <el-tag v-for="i in team.invitations" :key="i.id" round effect="plain">
-            {{ i.user.nickname || '用户' }} · {{ i.status === ApplicationStatus.PENDING ? '待回应' : i.status === 'ACCEPTED' ? '已加入' : '已拒绝' }}
+            {{ i.user.nickname || '用户' }} · {{ roleLabel(i.role) }}
           </el-tag>
         </div>
       </section>
@@ -302,9 +463,15 @@ const canApply = computed(
     <!-- 申请弹窗 -->
     <el-dialog v-model="applyVisible" title="申请加入" width="480px">
       <div class="flex flex-col gap-12px">
-        <div class="text-13px color-ink-soft">
-          给队长介绍一下自己：技能方向、相关经历、每周可投入时间…
+        <div>
+          <div class="text-13px font-semibold mb-6px">申请方向</div>
+          <el-radio-group v-model="applyRole">
+            <el-radio-button v-for="o in openRoleOptions" :key="o.role" :value="o.role">
+              {{ roleLabel(o.role) }}（剩 {{ o.count }}）
+            </el-radio-button>
+          </el-radio-group>
         </div>
+        <div class="text-13px color-ink-soft">给队长介绍一下自己：技能方向、相关经历、每周可投入时间…</div>
         <el-input v-model="pitch" type="textarea" :rows="5" placeholder="例如：2024 级计算机，会 Python 后端（Flask/FastAPI），有数据库设计经验，每周可投入 10+ 小时" />
         <div class="text-12px color-ink-faint">申请通过后，双方解锁学号与联系方式</div>
       </div>

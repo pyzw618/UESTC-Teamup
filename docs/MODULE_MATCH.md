@@ -22,48 +22,60 @@
 
 ## 2. 队伍状态机
 
+> 重构后状态统一为：`RECRUITING / PAUSED / FULL / COMPETING / DISBANDED / ARCHIVED`。
+> 旧状态 `NEGOTIATING` 已迁移为 `PAUSED`（见 `prisma/migrations/20260919120000_refactor_match_state_machine`）。
+
 ```
-                    ┌──────────────┐
-                    │  招募中       │  RECRUITING
-                    │  RECRUITING  │  ← 创建时默认状态，接收申请
-                    └──┬────┬───┬──┘
-        队长手动开启沟通 │    │   │ 招满（缺口角色全部 filled）
-                        │    │   └──────────────┐
-                        ▼    │                  ▼
-              ┌──────────────┐│          ┌──────────────┐
-              │  沟通中       ││          │  已满员       │  FULL
-              │  NEGOTIATING ││          │  FULL        │  ← 默认不出现在列表中
-              └──────┬───────┘│          └──────┬───────┘
-                     │        │                 │
-                     └────────┴────────┬────────┘
-                                       │ 队长手动标记参赛
-                                       ▼
-                              ┌──────────────┐
-                              │  已参赛       │  COMPETING
-                              │  COMPETING   │  ← 可发起互评
-                              └──────┬───────┘
-                                     │
-                    队长手动解散 ────┴──── 竞赛结束 60 天后自动归档
-                                     ▼
-                              ┌──────────────┐
-                              │  已解散       │  DISBANDED
-                              │  DISBANDED   │  ← 归档，不再展示
-                              └──────────────┘
+                 ┌──────────────┐  队长暂停招募   ┌──────────────┐
+                 │  招募中       │ ─────────────▶ │  暂停招募     │
+  创建时默认 ───▶│  RECRUITING  │ ◀───────────── │  PAUSED      │
+                 └───┬──────────┘  队长恢复招募   └───┬──────────┘
+                     │  最后一个名额被填满             │ 最后一个名额被填满
+                     ▼                                 ▼
+                 ┌────────────────────────────────────────┐
+                 │  已满员  FULL                            │
+                 └───┬────────────────────────────────┬───┘
+                     │ 成员退出/被移除 → PAUSED         │ 队长标记参赛
+                     │ （绝不自动回到 RECRUITING）      ▼
+                     │                          ┌──────────────┐
+                     │   队长“重新调整阵容” ◀─── │  已参赛       │
+                     │   （回到 PAUSED）         │  COMPETING   │
+                     │                          └──────┬───────┘
+ 队长主动解散 ────────┴──────────────┐                  │ 竞赛结束 60 天后
+                                     ▼                  ▼
+                              ┌──────────────┐   ┌──────────────┐
+                              │  已解散       │   │  已归档       │
+                              │  DISBANDED   │   │  ARCHIVED    │
+                              │  人为终止     │   │  正常结束     │
+                              └──────────────┘   └──────────────┘
 ```
+
+**语义要点**
+
+| 状态 | 可新申请/邀请 | 可处理已有候选人 | 成员退出 |
+|---|---|---|---|
+| RECRUITING | ✅ | ✅ | ✅（名额恢复 OPEN；原状态保持） |
+| PAUSED | ❌ | ✅ | ✅ |
+| FULL | ❌ | ❌（入 FULL 时未兑现的请求自动 EXPIRED） | ✅ → 回到 PAUSED |
+| COMPETING | ❌ | ❌ | ✅（保持 COMPETING，通知队长） |
+| DISBANDED | ❌ | ❌ | ❌ |
+| ARCHIVED | ❌ | ❌ | ❌ |
 
 ### 自动流转规则（cron 每日执行）
 
 | 触发条件 | 动作 | 理由 |
 |---|---|---|
 | `deadline`（招募截止）已过 且状态为 RECRUITING | 保持展示但**关闭申请入口**，列表加「已截止」标记 | 论坛被诟病的正是满屏没截止标记的僵尸帖 |
-| 竞赛报名截止已过 30 天 且状态为 RECRUITING/NEGOTIATING | 自动转 DISBANDED | 报名都结束了还挂着招募，是纯噪音 |
-| 状态为 COMPETING 且竞赛结束 60 天 | 自动转 DISBANDED | |
+| 竞赛报名截止已过 30 天 且状态为 RECRUITING/PAUSED/FULL | 自动转 **ARCHIVED** | 报名都结束了还挂着招募，是纯噪音 |
+| 状态为 COMPETING 且竞赛结束 60 天 | 自动转 **ARCHIVED** | 正常生命周期结束，归档而非解散 |
 
-> **自动流转是"结构化优于帖子"的核心体现。** 论坛帖子不会自己更新状态，因为没人有动力回来改。而我们的状态可以靠时间和规则自动推进。
+> **正常结束 ≠ 解散。** 只有队长主动解散才是 `DISBANDED`；比赛周期结束由系统归档为 `ARCHIVED`。
+> 归档同时把所有 pending 申请/邀请置为 `EXPIRED`。
 
 ### 默认可见性
 
-**列表默认只显示 `RECRUITING` 和 `NEGOTIATING`。** FULL / COMPETING / DISBANDED 需手动勾选才可见。
+**列表默认只显示 `RECRUITING`。** PAUSED / FULL / COMPETING 需手动勾选才可见；
+**`DISBANDED` 与 `ARCHIVED` 默认且永远不出现在公共组队发现列表。**
 
 ---
 
@@ -101,9 +113,22 @@
 
 > **为什么要有模板**：陌生人之间的拒绝是心理成本极高的事。没有模板，队长要么选择"直接不理"（申请人干等），要么写一句生硬的拒绝。**给模板等于给了台阶。**
 
-### 并发问题
+### 并发问题 / 统一加入流程
 
-**如果两个人同时申请、只剩一个位置**：审批时必须在事务里检查 `TeamSlot.filled`，用乐观锁或行锁防止超额录取。
+**如果两个人同时申请（或申请 + 邀请）、只剩一个位置**：不能“先 `findUnique` 再拿 `slots[0]` 再 update” ——
+那是假事务，两个请求仍可能读到同一个 OPEN slot。
+
+重构后申请接受与邀请接受共用同一个 `joinTeam` 事务：
+
+1. `SELECT … FOR UPDATE` 锁队伍行，串行化同一队伍的所有成员/状态变更；
+2. 请求在锁内重新读取并确认为 `PENDING`；
+3. 校验队伍状态 / 截止时间 / 用户不在本队 / 用户未加入同竞赛其他队；
+4. 用 **compare-and-swap**（`updateMany where status=OPEN` 并检查 affected rows）原子占用一个 `role` 匹配的 OPEN slot；
+5. 创建/复用 `TeamMember`，回填 `slot.filledByMemberId`，请求置 `ACCEPTED`；
+6. 同竞赛其他 pending 请求 `EXPIRED`；若无 OPEN slot → `FULL`。
+
+任一步失败整个事务回滚。跨队伍的“同竞赛一人一队”另由数据库部分唯一索引兜底。
+详见 `apps/api/src/modules/match/teams.service.ts` 的 `joinTeam` / `claimSlot`。
 
 ---
 
@@ -143,15 +168,15 @@ function serializeUser(u: User, viewer: Viewer) {
 
 ```ts
 const where: Prisma.TeamWhereInput = {
-  // 默认只看还在招人的
-  status: { in: ['RECRUITING', 'NEGOTIATING'] },
+  // 默认只看还在招人的（DISBANDED / ARCHIVED 永不出现在此）
+  status: { in: ['RECRUITING'] },
 
   ...(q.competitionId && { competitionId: q.competitionId }),
   ...(q.goal && { goal: q.goal }),
 
-  // 缺口角色：存在"未招满且角色命中"的 slot
+  // 缺口角色：存在"仍 OPEN 且角色命中"的 slot
   ...(q.roles?.length && {
-    slots: { some: { role: { in: q.roles }, filled: false } }
+    slots: { some: { role: { in: q.roles }, status: 'OPEN' } }
   }),
 
   // 还没截止的
@@ -161,7 +186,7 @@ const where: Prisma.TeamWhereInput = {
 };
 ```
 
-配套索引（见 [DATA_MODEL.md](./DATA_MODEL.md)）：`Team(status, competitionId)`、`TeamSlot(teamId, role, filled)`、`Team(deadline)`。
+配套索引（见 [DATA_MODEL.md](./DATA_MODEL.md)）：`Team(status, competitionId)`、`TeamSlot(teamId, role, status)`、`Team(deadline)`。
 
 > ⚠️ 原稿筛选维度里还有「技能标签、校区、投入时长」，但这三个字段在 v0.3 的组队卡改版中已被删除。**筛选维度必须跟着改**，见 [OPEN_QUESTIONS Q1](./OPEN_QUESTIONS.md)。
 

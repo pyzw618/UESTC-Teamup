@@ -64,6 +64,6 @@ export class JobsService {
   @Cron('0 30 3 * * *')
   async archiveTeams() {
     const result = await this.teams.archiveExpired();
-    if (result.disbanded > 0) this.logger.log(`自动解散过期队伍 ${result.disbanded} 支`);
+    if (result.archived > 0) this.logger.log(`自动归档过期队伍 ${result.archived} 支`);
   }
 }

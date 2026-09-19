@@ -14,7 +14,7 @@ const auth = useAuthStore();
 
 const home = ref<{
   deadlines: { competitionId: string; competitionName: string; stage: string; endAt: string; daysLeft: number }[];
-  hotTeams: (TeamListItem & { slots: { role: string; filled: boolean }[] })[];
+  hotTeams: (TeamListItem & { slots: { role: string; status: string }[] })[];
   bonusCompetitions: CompetitionListItem[];
   levelCounts: Record<string, number>;
   recommend: { id: string; name: string; levels: string[]; tags: string[]; reason: string }[];
@@ -35,7 +35,7 @@ onMounted(async () => {
     if (home.value) {
       home.value.hotTeams = home.value.hotTeams.map((t) => ({
         ...t,
-        openRoles: (t.slots ?? []).filter((s) => !s.filled).map((s) => s.role),
+        openRoles: (t.slots ?? []).filter((s) => s.status === 'OPEN').map((s) => s.role),
       }));
     }
     miniMonth.value = (month || []).filter((t) => {

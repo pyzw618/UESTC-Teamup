@@ -80,23 +80,35 @@ export class RadarController {
 
   @Public()
   @Get('competitions/:id')
-  async detail(@Param('id') id: string) {
+  async detail(@CurrentUser() user: User | undefined, @Param('id') id: string) {
     const detail = await this.competitions.detail(id);
+    const recruitingTeamsCount = detail.recruitingTeams.length;
+    // 组队招募信息不是互联网公开信息：游客只能看到“有多少支队伍正在招募”，
+    // 拿不到队伍详情 / 队长 / 成员 / 缺口。权限在服务端实施，不能只靠前端遮挡。
+    if (!user) {
+      return { ...detail, recruitingTeams: [], recruitingTeamsCount };
+    }
     return {
       ...detail,
-      recruitingTeams: detail.recruitingTeams.map((t) => ({
-        id: t.id,
-        goal: t.goal,
-        status: t.status,
-        deadline: t.deadline,
-        slots: t.slots,
-        memberCount: t.members.length,
-        pendingCount: t._count.applications,
-        leader: this.serializer.serialize({
-          ...t.leader,
-          teamIds: t.leader.memberships.map((m) => m.teamId),
-        }),
-      })),
+      recruitingTeamsCount,
+      recruitingTeams: detail.recruitingTeams.map((t) => {
+        const openSlots = t.slots.filter((s) => s.status === 'OPEN');
+        return {
+          id: t.id,
+          goal: t.goal,
+          status: t.status,
+          deadline: t.deadline,
+          slots: t.slots,
+          openRoles: [...new Set(openSlots.map((s) => s.role))],
+          memberCount: t.members.length,
+          remaining: openSlots.length,
+          pendingCount: t._count.applications,
+          leader: this.serializer.serialize({
+            ...t.leader,
+            teamIds: t.leader.memberships.map((m) => m.teamId),
+          }),
+        };
+      }),
     };
   }
 

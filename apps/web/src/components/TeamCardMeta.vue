@@ -14,8 +14,8 @@ const props = withDefaults(defineProps<{
   deadline?: string | null;
   openRoles?: string[];
   memberCount?: number;
-  teamSize?: number | null;
-  currentSize?: number | null;
+  /** 目标人数 = 当前成员数 + OPEN 名额数（服务端推导） */
+  targetSize?: number | null;
   competition?: { id: string; name: string };
   expired?: boolean;
   /** 传入则显示举报入口（招募卡片） */
@@ -41,9 +41,11 @@ const statusText = computed(() => TeamStatusLabel[props.status as TeamStatus] ??
 const statusType = computed(() => {
   switch (props.status) {
     case 'RECRUITING': return 'success';
-    case 'NEGOTIATING': return 'warning';
+    case 'PAUSED': return 'warning';
     case 'FULL': return 'info';
     case 'COMPETING': return 'primary';
+    case 'DISBANDED': return 'danger';
+    case 'ARCHIVED': return 'info';
     default: return 'info';
   }
 });
@@ -103,8 +105,8 @@ async function submitReport() {
         队长 {{ leader.nickname || '同学' }}
         <template v-if="leader.college"> · {{ leader.college }}</template>
         <template v-if="leader.grade"> · {{ leader.grade }} 级</template>
-        <template v-if="memberCount != null || props.currentSize != null">
-          · 已有 {{ props.currentSize ?? memberCount }}<template v-if="teamSize">/{{ teamSize }}</template> 人
+        <template v-if="memberCount != null">
+          · 已有 {{ memberCount }}<template v-if="targetSize">/{{ targetSize }}</template> 人
         </template>
       </span>
       <a

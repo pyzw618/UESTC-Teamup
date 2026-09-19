@@ -587,7 +587,7 @@ async function main() {
   for (const t of teamsData) {
     const competitionId = compIds[t.competitionName];
     const leaderId = users[t.leaderNick];
-    await prisma.team.create({
+    const team = await prisma.team.create({
       data: {
         competitionId,
         leaderId,
@@ -597,14 +597,24 @@ async function main() {
         deadline: t.deadline,
         status: t.status,
         slots: { create: t.slots },
-        members: {
-          create: t.members.map((m) =>
-            'userId' in m
-              ? { userId: users[m.userId], note: m.note }
-              : { displayName: m.displayName, role: m.role, rank: m.rank, grade: m.grade, college: m.college },
-          ),
-        },
       },
+    });
+    // TeamMember.competitionId 冗余自所属 Team（数据库层“同竞赛一人一队”约束需要）。
+    // 平台注册成员 userId 非空，平台外成员 userId 为 null。
+    await prisma.teamMember.createMany({
+      data: t.members.map((m) =>
+        'userId' in m
+          ? { teamId: team.id, competitionId, userId: users[m.userId], note: m.note }
+          : {
+              teamId: team.id,
+              competitionId,
+              displayName: m.displayName,
+              role: m.role,
+              rank: m.rank,
+              grade: m.grade,
+              college: m.college,
+            },
+      ),
     });
   }
 

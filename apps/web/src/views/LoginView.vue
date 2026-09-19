@@ -140,6 +140,12 @@ const setPwdSubmitting = ref(false);
 async function afterLogin() {
   await auth.refresh();
   const u = auth.user;
+  // 注册资料必填（昵称/学院/年级/专业）：资料不全先去完善
+  if (u && !u.nickname) {
+    ElMessage.info('请先完善基本资料（昵称、学院、年级、专业为必填）');
+    router.push({ path: '/me/profile', query: { required: '1' } });
+    return;
+  }
   // 首次登录（未设密码）引导设置密码，可跳过
   if (u && !u.hasPassword) {
     setPwdVisible.value = true;

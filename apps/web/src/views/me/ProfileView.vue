@@ -1,9 +1,11 @@
 <script setup lang="ts">
-import { ref, onMounted } from 'vue';
+import { ref, onMounted, computed } from 'vue';
+import { useRoute } from 'vue-router';
 import { ElMessage } from 'element-plus';
 import { api } from '../../api/client';
 import { useAuthStore } from '../../stores/auth';
 
+const route = useRoute();
 const auth = useAuthStore();
 
 const form = ref({
@@ -21,6 +23,12 @@ const pwdForm = ref({ oldPassword: '', newPassword: '', confirm: '' });
 const pwdSaving = ref(false);
 const hasPassword = ref(false);
 
+/** 注册后强制完善资料（字段清单：昵称/学院/年级/专业 注册时必填） */
+const requiredMode = computed(() => route.query.required === '1');
+const profileIncomplete = computed(
+  () => !form.value.nickname.trim() || !form.value.college.trim() || !form.value.major.trim() || form.value.grade == null,
+);
+
 onMounted(async () => {
   const me = await api.get<typeof form.value & { skills: { skill: string; level: number | null }[]; hasPassword?: boolean }>('/users/me');
   form.value = { nickname: me.nickname || '', college: me.college || '', grade: me.grade, major: me.major || '', bio: me.bio || '' };
@@ -36,6 +44,22 @@ function addSkill() {
 }
 
 async function save() {
+  if (!form.value.nickname.trim()) {
+    ElMessage.warning('昵称必填');
+    return;
+  }
+  if (!form.value.college.trim()) {
+    ElMessage.warning('学院必填');
+    return;
+  }
+  if (form.value.grade == null) {
+    ElMessage.warning('年级必填');
+    return;
+  }
+  if (!form.value.major.trim()) {
+    ElMessage.warning('专业必填');
+    return;
+  }
   saving.value = true;
   try {
     await api.put('/users/me', {
@@ -80,6 +104,15 @@ async function savePassword() {
 
 <template>
   <div class="glass p-22px">
+    <el-alert
+      v-if="requiredMode && profileIncomplete"
+      type="warning"
+      :closable="false"
+      show-icon
+      title="请先完善基本资料"
+      description="昵称、学院、年级、专业为注册必填项，补全后即可正常使用平台功能"
+      class="!mb-16px"
+    />
     <div class="flex flex-col gap-16px">
       <div class="text-13px color-ink-faint">
         学号 {{ auth.user?.studentNo }} 与邮箱不可修改；学院/年级从学号自动解析，可手工修正

@@ -4,7 +4,7 @@ import { useRoute, useRouter } from 'vue-router';
 import { ElMessage } from 'element-plus';
 import { AudienceLabel, CompetitionFormatLabel, Audience, CompetitionFormat } from '@teamup/shared';
 import { api, qs } from '../../api/client';
-import { fmtDate, daysLeft, type CommentItem, type CompetitionDetail, type TeamSummary } from '../../api/types';
+import { fmtDate, daysLeft, type CompetitionDetail, type TeamSummary } from '../../api/types';
 import LevelChips from '../../components/LevelChips.vue';
 import TeamCardMeta from '../../components/TeamCardMeta.vue';
 import CommentList from '../../components/CommentList.vue';
@@ -25,8 +25,6 @@ const correctionField = ref('');
 const correctionProposed = ref('');
 const correctionNote = ref('');
 const correctionSubmitting = ref(false);
-
-const comments = ref<CommentItem[]>([]);
 
 const recruitingTeams = ref<TeamSummary[]>([]);
 const recruitingTeamsCount = ref(0);
@@ -116,10 +114,6 @@ async function submitCorrection() {
   }
 }
 
-async function loadComments() {
-  if (!comp.value) return;
-  comments.value = await api.get(`/comments${qs({ targetType: 'COMPETITION', targetId: comp.value.id })}`);
-}
 </script>
 
 <template>
@@ -278,7 +272,7 @@ async function loadComments() {
                 :goal="t.goal"
                 :status="t.status"
                 :deadline="t.deadline"
-                :open-roles="t.openRoles"
+                :needed-roles="t.neededRoles"
                 :member-count="t.memberCount"
                 :target-size="t.targetSize"
                 :team-id="t.id"
@@ -327,7 +321,7 @@ async function loadComments() {
       <!-- 留言讨论 -->
       <section class="glass p-20px">
         <h2 class="text-15px font-bold m-0 mb-12px">💬 留言讨论</h2>
-        <CommentList :comments="comments" target-type="COMPETITION" :target-id="comp.id || ''" @posted="loadComments" />
+        <CommentList target-type="COMPETITION" :target-id="comp.id || ''" />
       </section>
     </div>
 

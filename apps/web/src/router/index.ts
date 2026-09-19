@@ -21,7 +21,6 @@ export const router = createRouter({
         { path: '', redirect: '/me/profile' },
         { path: 'profile', name: 'me-profile', component: () => import('../views/me/ProfileView.vue') },
         { path: 'teams', name: 'me-teams', component: () => import('../views/me/MyTeamsView.vue') },
-        { path: 'applications', name: 'me-applications', component: () => import('../views/me/MyApplicationsView.vue') },
         { path: 'favorites', name: 'me-favorites', component: () => import('../views/me/MyFavoritesView.vue') },
       ],
     },

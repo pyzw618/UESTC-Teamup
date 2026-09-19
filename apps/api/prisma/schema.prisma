@@ -1,7 +1,11 @@
 // UESTC TeamUp 数据模型
-// 依据 docs/DATA_MODEL.md（v0.3）落地，开放问题按开发计划决策处理：
-// Q2 互评表保留 UI 不做 / Q3 无头像（首字母色块）/ Q6 UserSkill 保留 /
-// Q8 联系方式申请通过后可见 / Q9 isLocked 采纳 / Q11 邮箱 8-16 位放宽在应用层校验
+// 依据 docs/字段清单.md 落地。
+// 2026-09-19「广告牌模式」改版：
+// - 平台不做申请/邀请/审批/私聊，不跟踪成员与名额，移除 TeamMember / TeamSlot /
+//   Application / Invitation / Workspace / Review 及 SlotStatus / ApplicationStatus 枚举
+// - Team 即「招募帖」，联系方式直接公开；评论区 = Comment(targetType=TEAM) + CommentLike
+// - TeamStatus 精简为四态：RECRUITING / FULL 由队长切换，COMPETING 由系统按比赛时间设置，
+//   DISBANDED 由队长设置并进入归档仓库
 
 generator client {
   provider = "prisma-client-js"
@@ -45,15 +49,13 @@ enum TeamGoal {
   BONUS_ONLY
 }
 
-// Team 生命周期状态机。注意：NEGOTIATING 已被 PAUSED 取代（见迁移说明），
-// 正常比赛结束归档是 ARCHIVED，只有队长主动解散才是 DISBANDED。
+// 招募帖状态：RECRUITING / FULL / DISBANDED 队长手动切换，
+// COMPETING 由系统根据竞赛时间线自动设置（比赛开始后不再自动回退）。
 enum TeamStatus {
   RECRUITING
-  PAUSED
   FULL
   COMPETING
   DISBANDED
-  ARCHIVED
 }
 
 enum RoleType {
@@ -66,22 +68,6 @@ enum RoleType {
   PAPER
   DEFENSE
   OTHER
-}
-
-// 招募名额状态：OPEN=仍需招人，FILLED=已被成员占据，CLOSED=队长取消该需求。
-enum SlotStatus {
-  OPEN
-  FILLED
-  CLOSED
-}
-
-enum ApplicationStatus {
-  PENDING
-  ACCEPTED
-  REJECTED
-  WITHDRAWN
-  // EXPIRED：因队伍满员/解散/归档，或同竞赛已加入其他队伍而自动失效
-  EXPIRED
 }
 
 enum PublishStatus {
@@ -112,15 +98,11 @@ enum CommentTarget {
 
 enum NotificationKind {
   DDL_REMINDER
-  APPLICATION_NEW
-  APPLICATION_RESULT
-  INVITATION_NEW
   COMMENT_REPLY
   CRAWL_ANOMALY
   SOURCE_FAILING
   CORRECTION_NEW
-  MEMBER_LEFT
-  MEMBER_REMOVED
+  SYSTEM_NOTIFICATION
 }
 
 enum RevisionOrigin {
@@ -154,7 +136,7 @@ model User {
   id        String   @id @default(cuid())
   studentNo String   @unique
   email     String   @unique
-  // 密码（scrypt 哈希）。可空：首次验证码注册后尚未设置密码
+  // 密码（scrypt 哈希）。数据库层保留可空以兼容历史行，注册/完善资料流程中必填
   passwordHash String?
   college   String?
   grade     Int?
@@ -168,14 +150,10 @@ model User {
 
   skills        UserSkill[]
   teamsLed      Team[]            @relation("TeamLeader")
-  memberships   TeamMember[]
-  applications  Application[]
-  invitations   Invitation[]
   comments      Comment[]
+  commentLikes  CommentLike[]
   favorites     Favorite[]
   notifications Notification[]
-  reviewsGiven  Review[]          @relation("Reviewer")
-  reviewsGot    Review[]          @relation("Reviewee")
   corrections   CorrectionReport[]
   posts         Post[]
   materials     CompetitionMaterial[]
@@ -404,143 +382,56 @@ model CorrectionReport {
   @@index([status, createdAt])
 }
 
-// ================= 队友匹配 =================
+// ================= 队友匹配（广告牌模式） =================
 
+// Team 即「招募帖」：队长发布，感兴趣的人通过公开的 contact 直接线下联系。
+// 平台不做申请/审批；targetSize 与成员名单为队长手填的展示信息（成员不关联平台账号）。
+// 帖子下方评论区由 Comment(targetType=TEAM) 承载。
 model Team {
   id            String   @id @default(cuid())
   competitionId String
   leaderId      String
   goal          TeamGoal
 
-  requirement String?   @db.Text
-  contact     String?   // 申请通过后站内可见（Q8）
+  // 期望招募的方向标签（卡片展示 + 按方向筛选）；具体要求写在 requirement
+  neededRoles RoleType[]
+  requirement String?    @db.Text
+  // 联系方式（微信/QQ），广告牌模式下直接公开展示
+  contact     String
   deadline    DateTime?
+  // 计划招募人数（队长手填，展示用）
+  targetSize  Int?
 
-  // 人数不再落库：当前人数 = 活跃 TeamMember 数，剩余 = OPEN Slot 数，目标 = 二者之和。
-  // 旧的 teamSize/currentSize 已删除（见迁移），避免与真实关系漂移。
+  status    TeamStatus @default(RECRUITING)
+  createdAt DateTime   @default(now())
+  updatedAt DateTime   @updatedAt
 
-  status     TeamStatus @default(RECRUITING)
-  // 正常生命周期归档时间（cron 写入），DISBANDED 不使用该字段
-  archivedAt DateTime?
-  createdAt  DateTime   @default(now())
-  updatedAt  DateTime   @updatedAt
-
-  competition Competition    @relation(fields: [competitionId], references: [id])
-  leader      User           @relation("TeamLeader", fields: [leaderId], references: [id])
+  competition Competition @relation(fields: [competitionId], references: [id])
+  leader      User        @relation("TeamLeader", fields: [leaderId], references: [id])
   members     TeamMember[]
-  slots       TeamSlot[]
-  applications Application[]
-  invitations Invitation[]
-  workspace   Workspace?
-  reviews     Review[]
 
   @@index([status, competitionId])
   @@index([deadline])
   @@index([leaderId])
 }
 
-// TeamMember 是“当前团队成员关系”的唯一事实来源。
-// userId != null 为注册用户；userId == null 为队长录入的平台外成员。
-// 平台注册用户只能通过 Application 接受 / Invitation 接受进入本表，
-// 不能由队长直接传入 userId 创建。
+// 已有成员情况：队长手填的纯展示名单（加入在平台外发生，不关联平台账号）。
+// 已有成员数量 = 本表行数（派生，不落库）。
 model TeamMember {
-  id          String   @id @default(cuid())
-  teamId      String
-  userId      String?  // 可为空 = 平台外成员
-  // 冗余自 Team.competitionId：用于数据库层保证“同一竞赛仅一个有效团队”
-  // （唯一索引无法跨表引用 Team.competitionId，见迁移中的部分唯一索引）
-  competitionId String
-  displayName String?
+  id     String @id @default(cuid())
+  teamId String
 
-  role    RoleType?
-  rank    String?
   grade   Int?
   college String?
-  note    String?
+  major   String?
+  rank    String?
+  intro   String?  @db.Text
 
-  // active=false 表示已退出/被移除（保留历史，不再计入当前人数与同竞赛唯一性）
-  active   Boolean   @default(true)
-  joinedAt DateTime  @default(now())
-  leftAt   DateTime?
-
-  team Team  @relation(fields: [teamId], references: [id], onDelete: Cascade)
-  user User? @relation(fields: [userId], references: [id])
-  // 该成员占据的 slot（1-1，见 TeamSlot.filledByMemberId 唯一约束）
-  filledSlot TeamSlot? @relation("SlotFilledBy")
-
-  // 同一队伍同一用户不允许重复成员行（平台外成员 userId 为空，Postgres 允许多个 NULL）
-  @@unique([teamId, userId])
-  @@index([teamId, active])
-  @@index([userId, active])
-  @@index([competitionId, active])
-}
-
-// 一个 TeamSlot = 一个真实、最多只能由一个成员占据的招募名额。
-model TeamSlot {
-  id     String     @id @default(cuid())
-  teamId String
-  role   RoleType
-  // 该名额的额外说明（队长可编辑，仅未 FILLED 时）
-  note   String?
-  status SlotStatus @default(OPEN)
-
-  // 占据该名额的成员；唯一约束保证一个成员最多占据一个 slot
-  filledByMemberId String?   @unique
-  filledAt         DateTime?
-  createdAt        DateTime  @default(now())
-
-  team           Team        @relation(fields: [teamId], references: [id], onDelete: Cascade)
-  filledByMember TeamMember? @relation("SlotFilledBy", fields: [filledByMemberId], references: [id], onDelete: SetNull)
-
-  @@index([teamId, role, status])
-}
-
-model Application {
-  id     String @id @default(cuid())
-  teamId String
-  userId String
-
-  // 申请人期望的方向（不指定具体 slot id）；接受时只占用 role 匹配的 OPEN slot
-  desiredRole RoleType
-  pitch  String?           @db.Text
-  status ApplicationStatus @default(PENDING)
-  reason String?
   createdAt DateTime @default(now())
-  updatedAt DateTime @updatedAt
 
   team Team @relation(fields: [teamId], references: [id], onDelete: Cascade)
-  user User @relation(fields: [userId], references: [id])
 
-  // 同一用户对同一队伍最多一条 PENDING（部分唯一索引，见迁移）
-  @@index([teamId, userId, status])
-  @@index([userId, status])
-}
-
-model Invitation {
-  id     String @id @default(cuid())
-  teamId String
-  userId String   // 被邀请人
-
-  // 邀请同样必须指定方向；接受后进入与申请审批完全一致的加入流程
-  role      RoleType
-  message   String?
-  status    ApplicationStatus @default(PENDING)
-  createdAt DateTime          @default(now())
-
-  team Team @relation(fields: [teamId], references: [id], onDelete: Cascade)
-  user User @relation(fields: [userId], references: [id])
-
-  // 同一用户对同一队伍最多一条 PENDING（部分唯一索引，见迁移）
-  @@index([userId, status])
-  @@index([teamId, status])
-}
-
-// 队伍空间锚点（P2 起各子模块建表）
-model Workspace {
-  id     String @id @default(cuid())
-  teamId String @unique
-
-  team Team @relation(fields: [teamId], references: [id], onDelete: Cascade)
+  @@index([teamId])
 }
 
 // ================= 横向表 =================
@@ -571,11 +462,27 @@ model Comment {
   targetId   String
   content    String       @db.Text
   parentId   String?
+  // 点赞数（冗余计数，由 CommentLike 明细维护；排序友好）
+  likes      Int          @default(0)
   createdAt  DateTime     @default(now())
 
-  author User @relation(fields: [authorId], references: [id])
+  author User          @relation(fields: [authorId], references: [id])
+  likedBy CommentLike[]
 
   @@index([targetType, targetId, createdAt])
+}
+
+// 评论点赞：联合主键天然防重复点赞
+model CommentLike {
+  userId    String
+  commentId String
+  createdAt DateTime @default(now())
+
+  user    User    @relation(fields: [userId], references: [id], onDelete: Cascade)
+  comment Comment @relation(fields: [commentId], references: [id], onDelete: Cascade)
+
+  @@id([userId, commentId])
+  @@index([commentId])
 }
 
 model Favorite {
@@ -602,26 +509,6 @@ model Notification {
 
   @@index([userId, readAt])
   @@index([userId, createdAt])
-}
-
-// 互评（P3 展示，表结构按 Q2 保留）
-model Review {
-  id         String  @id @default(cuid())
-  teamId     String
-  reviewerId String
-  revieweeId String
-
-  reliability   Int?
-  skill         Int?
-  communication Int?
-  comment       String? @db.Text
-  createdAt     DateTime @default(now())
-
-  team     Team @relation(fields: [teamId], references: [id], onDelete: Cascade)
-  reviewer User @relation("Reviewer", fields: [reviewerId], references: [id])
-  reviewee User @relation("Reviewee", fields: [revieweeId], references: [id])
-
-  @@unique([teamId, reviewerId, revieweeId])
 }
 
 // 举报（P2 处理台，仅建表预留）

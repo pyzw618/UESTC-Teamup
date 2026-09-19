@@ -100,6 +100,9 @@ const activeFilterCount = computed(
         <p class="text-13px color-ink-soft m-0 mt-4px">自动监听竞赛信息源，不错过任何 DDL</p>
       </div>
       <div class="flex items-center gap-8px">
+        <el-button round @click="router.push({ name: 'calendar' })">
+          📅 竞赛日历
+        </el-button>
         <div class="view-switch" role="tablist" aria-label="视图切换">
           <button class="view-switch-item" :class="{ active: view === 'card' }" @click="view = 'card'">
             <svg viewBox="0 0 24 24" fill="none" aria-hidden="true"><rect x="3.5" y="3.5" width="7" height="7" rx="1.8" stroke="currentColor" stroke-width="1.7"/><rect x="13.5" y="3.5" width="7" height="7" rx="1.8" stroke="currentColor" stroke-width="1.7"/><rect x="3.5" y="13.5" width="7" height="7" rx="1.8" stroke="currentColor" stroke-width="1.7"/><rect x="13.5" y="13.5" width="7" height="7" rx="1.8" stroke="currentColor" stroke-width="1.7"/></svg>

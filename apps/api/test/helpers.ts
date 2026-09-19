@@ -1,6 +1,5 @@
 /**
- * 测试基础设施：使用真实的 PostgreSQL（teamup_test）+ 真实 Prisma 事务，
- * 因为本次重构的核心不变量（并发占名额、同竞赛一人一队）只有真库才能验证。
+ * 测试基础设施：使用真实的 PostgreSQL（teamup_test）。
  *
  * 运行：pnpm -F @teamup/api test
  * 依赖：本地 PG（默认复用 docker 容器 axonhub-postgres）。
@@ -12,6 +11,7 @@ import { PrismaService } from '../src/common/prisma.service';
 import { NotificationService } from '../src/modules/notification/notification.service';
 import { ViewerContext, UserSerializer } from '../src/common/auth/viewer.context';
 import { TeamsService } from '../src/modules/match/teams.service';
+import { CommentsService } from '../src/modules/radar/comments.service';
 import { RoleType, TeamGoal, TeamStatus, type Prisma } from '@prisma/client';
 
 const here = dirname(fileURLToPath(import.meta.url));
@@ -20,16 +20,18 @@ const apiRoot = join(here, '..');
 /** 独立测试库，绝不触碰开发库 teamup */
 export const TEST_DATABASE_URL =
   process.env.TEST_DATABASE_URL ??
-  'postgresql://axonhub:axonhub_password@127.0.0.1:5432/teamup_test?schema=public';
+  'postgresql://teamup:teamup_dev@127.0.0.1:5432/teamup_test?schema=public';
 
 process.env.DATABASE_URL = TEST_DATABASE_URL;
 
 /** 让测试库 schema 与 migrations 一致（幂等） */
 export function migrateTestDatabase() {
-  execFileSync(join(apiRoot, 'node_modules/.bin/prisma'), ['migrate', 'deploy'], {
+  const bin = join(apiRoot, 'node_modules/.bin/prisma') + (process.platform === 'win32' ? '.cmd' : '');
+  execFileSync(bin, ['migrate', 'deploy'], {
     cwd: apiRoot,
     env: { ...process.env, DATABASE_URL: TEST_DATABASE_URL },
     stdio: 'pipe',
+    shell: process.platform === 'win32',
   });
 }
 
@@ -46,20 +48,19 @@ export function makeService(prisma: PrismaService) {
   const notify = new NotificationService(prisma);
   viewerSingleton ??= new ViewerContext();
   const serializer = new UserSerializer(viewerSingleton);
-  return { service: new TeamsService(prisma, notify, serializer), viewer: viewerSingleton };
+  return {
+    teams: new TeamsService(prisma, notify, serializer),
+    comments: new CommentsService(prisma, notify),
+    viewer: viewerSingleton,
+  };
 }
 
 const TRUNCATE_TABLES = [
   'Notification',
-  'Application',
-  'Invitation',
-  'TeamSlot',
-  'TeamMember',
-  'Review',
-  'Workspace',
+  'CommentLike',
+  'Comment',
   'Team',
   'Favorite',
-  'Comment',
   'UserSkill',
   'CompetitionTimeline',
   'CompetitionLevel',
@@ -100,53 +101,35 @@ export async function makeCompetition(prisma: PrismaService, name: string) {
   return prisma.competition.create({ data: { name, status: 'PUBLISHED' } });
 }
 
-export interface MakeTeamOptions {
+export interface MakeTeamPostOptions {
   competitionId: string;
   leaderId: string;
-  slots?: RoleType[];
+  goal?: TeamGoal;
+  neededRoles?: RoleType[];
   status?: TeamStatus;
   deadline?: Date | null;
+  contact?: string;
+  requirement?: string;
+  targetSize?: number;
+  members?: { grade?: number | null; college?: string | null; major?: string | null; rank?: string | null; intro?: string | null }[];
 }
 
-/** 创建队伍：队长自动成为注册 TeamMember，slots 默认 OPEN */
-export async function makeTeam(prisma: PrismaService, opts: MakeTeamOptions) {
-  const slots = opts.slots ?? [RoleType.ALGORITHM];
-  const team = await prisma.team.create({
+/** 创建招募帖（广告牌模式） */
+export async function makeTeamPost(prisma: PrismaService, opts: MakeTeamPostOptions) {
+  return prisma.team.create({
     data: {
       competitionId: opts.competitionId,
       leaderId: opts.leaderId,
-      goal: TeamGoal.PRIZE,
+      goal: opts.goal ?? TeamGoal.PRIZE,
+      neededRoles: opts.neededRoles ?? [RoleType.ALGORITHM],
       status: opts.status ?? TeamStatus.RECRUITING,
       deadline: opts.deadline ?? null,
-      slots: { create: slots.map((role) => ({ role })) },
+      contact: opts.contact ?? 'QQ 10000',
+      requirement: opts.requirement ?? null,
+      targetSize: opts.targetSize,
+      members: opts.members ? { create: opts.members } : undefined,
     },
-    include: { slots: true },
   });
-  await prisma.teamMember.create({
-    data: { teamId: team.id, userId: opts.leaderId, competitionId: opts.competitionId, note: '队长' },
-  });
-  return team;
-}
-
-/** 直接在数据库层插入一条 PENDING 申请，用于构造并发/绕过状态机的场景 */
-export async function seedApplication(
-  prisma: PrismaService,
-  teamId: string,
-  userId: string,
-  desiredRole: RoleType,
-  pitch = '测试申请',
-) {
-  return prisma.application.create({ data: { teamId, userId, desiredRole, pitch } });
-}
-
-export async function seedInvitation(
-  prisma: PrismaService,
-  teamId: string,
-  userId: string,
-  role: RoleType,
-  message = '测试邀请',
-) {
-  return prisma.invitation.create({ data: { teamId, userId, role, message } });
 }
 
 export async function closePrisma() {

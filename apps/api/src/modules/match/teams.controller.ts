@@ -17,31 +17,26 @@ import { RoleType, TeamGoal, TeamStatus } from '@teamup/shared';
 import { TransformStringArray } from '../../common/query.transform';
 import { CurrentUser } from '../../common/auth/decorators';
 import type { User } from '@prisma/client';
-import { TeamsService, type CreateTeamInput, type TeamTransitionAction } from './teams.service';
+import { TeamsService, type UpsertTeamInput, type ManualTeamStatus } from './teams.service';
 
-class SlotInputDto {
-  @IsEnum(RoleType) role!: RoleType;
-  @IsOptional() @IsString() @Length(0, 200) note?: string;
-}
-
-class ExternalMemberDto {
-  @IsOptional() @IsString() @Length(0, 40) displayName?: string;
-  @IsOptional() @IsEnum(RoleType) role?: RoleType;
-  @IsOptional() @IsString() @Length(0, 40) rank?: string;
-  @IsOptional() @IsInt() @Min(2015) @Max(2035) grade?: number;
-  @IsOptional() @IsString() @Length(0, 40) college?: string;
-  @IsOptional() @IsString() @Length(0, 200) note?: string;
-}
-
-class CreateTeamDto {
+class UpsertTeamDto {
   @IsOptional() @IsString() competitionId?: string;
   @IsOptional() @IsString() @Length(1, 120) competitionName?: string;
   @IsEnum(TeamGoal) goal!: TeamGoal;
+  @IsOptional() @IsArray() @IsEnum(RoleType, { each: true }) neededRoles?: RoleType[];
   @IsOptional() @IsString() @Length(0, 2000) requirement?: string;
-  @IsOptional() @IsString() @Length(0, 200) contact?: string;
+  @IsString() @Length(1, 200, { message: '请填写联系方式（微信/QQ）' }) contact!: string;
   @IsOptional() @IsDateString() deadline?: string;
-  @IsArray() @ValidateNested({ each: true }) @Type(() => SlotInputDto) slots!: SlotInputDto[];
-  @IsOptional() @IsArray() @ValidateNested({ each: true }) @Type(() => ExternalMemberDto) members?: ExternalMemberDto[];
+  @IsOptional() @IsInt() @Min(1) @Max(99) targetSize?: number;
+  @IsOptional() @IsArray() @ValidateNested({ each: true }) @Type(() => MemberDto) members?: MemberDto[];
+}
+
+class MemberDto {
+  @IsOptional() @IsInt() @Min(2015) @Max(2035) grade?: number;
+  @IsOptional() @IsString() @Length(0, 40) college?: string;
+  @IsOptional() @IsString() @Length(0, 40) major?: string;
+  @IsOptional() @IsString() @Length(0, 40) rank?: string;
+  @IsOptional() @IsString() @Length(0, 500) intro?: string;
 }
 
 class ListTeamsDto {
@@ -49,44 +44,13 @@ class ListTeamsDto {
   @IsOptional() @TransformStringArray() roles?: RoleType[];
   @IsOptional() @IsEnum(TeamGoal) goal?: TeamGoal;
   @IsOptional() @TransformStringArray() statuses?: TeamStatus[];
-  @IsOptional() @IsInt() @Min(2015) @Max(2035) grade?: number;
   @IsOptional() @IsIn(['DEADLINE', 'LATEST']) sort?: 'DEADLINE' | 'LATEST';
   @IsOptional() @IsInt() @Min(1) page: number = 1;
   @IsOptional() @IsInt() @Min(1) @Max(60) pageSize: number = 12;
 }
 
-class ApplyDto {
-  @IsEnum(RoleType) desiredRole!: RoleType;
-  @IsString() @Length(1, 2000, { message: '请填写自我介绍（1-2000 字）' }) pitch!: string;
-}
-
-class ReviewDto {
-  @IsString() applicationId!: string;
-  @IsString() @IsIn(['accept', 'reject']) action!: 'accept' | 'reject';
-  @IsOptional() @IsString() @Length(0, 200) reason?: string;
-}
-
-class TransitionDto {
-  @IsString() @IsIn(['PAUSE', 'RESUME', 'COMPETE', 'ADJUST', 'DISBAND']) action!: TeamTransitionAction;
-}
-
-class InviteDto {
-  @IsString() userId!: string;
-  @IsEnum(RoleType) role!: RoleType;
-  @IsOptional() @IsString() @Length(0, 500) message?: string;
-}
-
-class InvitationActionDto {
-  @IsString() @IsIn(['accept', 'reject']) action!: 'accept' | 'reject';
-}
-
-class TransferLeadershipDto {
-  @IsString() userId!: string;
-}
-
-class UpdateSlotDto {
-  @IsOptional() @IsEnum(RoleType) role?: RoleType;
-  @IsOptional() @IsString() @Length(0, 200) note?: string | null;
+class SetStatusDto {
+  @IsEnum(TeamStatus) status!: TeamStatus;
 }
 
 @Controller('teams')
@@ -109,29 +73,9 @@ export class TeamsController {
     return this.teams.myTeams(user.id);
   }
 
-  @Get('me/applications')
-  myApplications(@CurrentUser() user: User) {
-    return this.teams.myApplications(user.id);
-  }
-
-  @Get('me/invitations')
-  myInvitations(@CurrentUser() user: User) {
-    return this.teams.myInvitations(user.id);
-  }
-
   @Post()
-  create(@CurrentUser() user: User, @Body() dto: CreateTeamDto) {
-    const input: CreateTeamInput = {
-      competitionId: dto.competitionId,
-      competitionName: dto.competitionName,
-      goal: dto.goal,
-      requirement: dto.requirement,
-      contact: dto.contact,
-      deadline: dto.deadline ? new Date(dto.deadline) : undefined,
-      slots: dto.slots ?? [],
-      members: dto.members,
-    };
-    return this.teams.create(user.id, input);
+  create(@CurrentUser() user: User, @Body() dto: UpsertTeamDto) {
+    return this.teams.create(user.id, this.toInput(dto));
   }
 
   @Get(':id')
@@ -139,73 +83,28 @@ export class TeamsController {
     return this.teams.detail(id, user?.id, user?.role);
   }
 
-  // ---------- 状态机 ----------
-
-  @Post(':id/transition')
-  transition(@CurrentUser() user: User, @Param('id') id: string, @Body() dto: TransitionDto) {
-    return this.teams.transition(user.id, id, dto.action);
+  @Patch(':id')
+  update(@CurrentUser() user: User, @Param('id') id: string, @Body() dto: UpsertTeamDto) {
+    return this.teams.update(user.id, id, this.toInput(dto));
   }
 
-  // ---------- 申请流 ----------
-
-  @Post(':id/applications')
-  apply(@CurrentUser() user: User, @Param('id') id: string, @Body() dto: ApplyDto) {
-    return this.teams.apply(user.id, id, dto.desiredRole, dto.pitch);
+  /** 队长手动切换状态：RECRUITING / FULL / DISBANDED（COMPETING 由系统自动设置） */
+  @Post(':id/status')
+  setStatus(@CurrentUser() user: User, @Param('id') id: string, @Body() dto: SetStatusDto) {
+    return this.teams.setStatus(user.id, id, dto.status as ManualTeamStatus);
   }
 
-  @Post('applications/review')
-  review(@CurrentUser() user: User, @Body() dto: ReviewDto) {
-    return this.teams.reviewApplication(user.id, dto.applicationId, dto.action === 'accept', dto.reason);
-  }
-
-  @Post('applications/:id/withdraw')
-  withdraw(@CurrentUser() user: User, @Param('id') id: string) {
-    return this.teams.withdraw(user.id, id);
-  }
-
-  // ---------- 邀请流 ----------
-
-  @Post(':id/invitations')
-  invite(@CurrentUser() user: User, @Param('id') id: string, @Body() dto: InviteDto) {
-    return this.teams.invite(user.id, id, dto.userId, dto.role, dto.message);
-  }
-
-  @Post('invitations/:id/respond')
-  respondInvitation(@CurrentUser() user: User, @Param('id') id: string, @Body() dto: InvitationActionDto) {
-    return this.teams.respondInvitation(user.id, id, dto.action === 'accept');
-  }
-
-  // ---------- 成员生命周期 ----------
-
-  @Post(':id/leave')
-  leave(@CurrentUser() user: User, @Param('id') id: string) {
-    return this.teams.leaveTeam(user.id, id);
-  }
-
-  @Post(':id/members/:memberId/remove')
-  removeMember(@CurrentUser() user: User, @Param('id') id: string, @Param('memberId') memberId: string) {
-    return this.teams.removeMember(user.id, id, memberId);
-  }
-
-  @Post(':id/transfer-leadership')
-  transferLeadership(@CurrentUser() user: User, @Param('id') id: string, @Body() dto: TransferLeadershipDto) {
-    return this.teams.transferLeadership(user.id, id, dto.userId);
-  }
-
-  // ---------- TeamSlot 编辑 ----------
-
-  @Post(':id/slots')
-  addSlot(@CurrentUser() user: User, @Param('id') id: string, @Body() dto: SlotInputDto) {
-    return this.teams.addSlot(user.id, id, dto.role, dto.note);
-  }
-
-  @Patch(':id/slots/:slotId')
-  updateSlot(@CurrentUser() user: User, @Param('id') id: string, @Param('slotId') slotId: string, @Body() dto: UpdateSlotDto) {
-    return this.teams.updateSlot(user.id, id, slotId, { role: dto.role, note: dto.note });
-  }
-
-  @Post(':id/slots/:slotId/close')
-  closeSlot(@CurrentUser() user: User, @Param('id') id: string, @Param('slotId') slotId: string) {
-    return this.teams.closeSlot(user.id, id, slotId);
+  private toInput(dto: UpsertTeamDto): UpsertTeamInput {
+    return {
+      competitionId: dto.competitionId,
+      competitionName: dto.competitionName,
+      goal: dto.goal,
+      neededRoles: dto.neededRoles,
+      requirement: dto.requirement,
+      contact: dto.contact,
+      deadline: dto.deadline ? new Date(dto.deadline) : undefined,
+      targetSize: dto.targetSize,
+      members: dto.members,
+    };
   }
 }

@@ -36,7 +36,7 @@ async function load() {
         competitionId: filters.competitionId || undefined,
         roles: filters.roles.length ? filters.roles : undefined,
         goal: filters.goal || undefined,
-        statuses: filters.includeClosed ? ['RECRUITING', 'PAUSED', 'FULL', 'COMPETING'] : undefined,
+        statuses: filters.includeClosed ? ['RECRUITING', 'FULL', 'COMPETING'] : undefined,
         sort: filters.sort,
         page: page.value,
         pageSize: 12,
@@ -65,7 +65,7 @@ onMounted(() => {
     <div class="flex items-end justify-between mb-18px flex-wrap gap-10px">
       <div>
         <h1 class="text-28px font-extrabold m-0">队友招募</h1>
-        <p class="text-13px color-ink-soft m-0 mt-4px">结构化组队卡 · 状态自动更新 · 站内闭环沟通</p>
+        <p class="text-13px color-ink-soft m-0 mt-4px">像公告栏一样的组队广场 —— 看到合适的帖子，直接加队长联系方式</p>
       </div>
       <el-button v-if="auth.isLoggedIn" type="primary" size="large" round @click="router.push({ name: 'team-new' })">
         + 发布组队
@@ -79,7 +79,7 @@ onMounted(() => {
     <FrostedGate
       v-if="!auth.isLoggedIn"
       title="队友招募信息仅对登录同学可见"
-      description="登录后可浏览全部招募队伍、筛选缺口角色、查看组队要求。还没注册？校园邮箱验证码即可登录。"
+      description="登录后可浏览全部招募帖、按方向筛选、直接获取队长联系方式。还没注册？校园邮箱验证码即可登录。"
     >
       <div class="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-14px pb-6px">
         <div v-for="i in 6" :key="i" class="h-150px"></div>
@@ -94,7 +94,7 @@ onMounted(() => {
           multiple
           collapse-tags
           collapse-tags-tooltip
-          placeholder="缺口角色"
+          placeholder="招募方向"
           clearable
           style="min-width: 190px"
         >
@@ -108,9 +108,9 @@ onMounted(() => {
           <el-option value="DEADLINE" label="招募截止临近" />
         </el-select>
         <el-checkbox v-model="filters.includeClosed">
-          <span class="text-13px">显示暂停 / 已满员 / 已参赛</span>
+          <span class="text-13px">显示已满员 / 已参赛</span>
         </el-checkbox>
-        <span class="text-12px color-ink-faint ml-auto hidden md:inline">默认只看招募中；已解散与已归档永不出现在发现列表</span>
+        <span class="text-12px color-ink-faint ml-auto hidden md:inline">默认只看招募中；已解散的帖子只留在作者的归档仓库</span>
       </div>
 
       <div v-loading="loading" class="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-14px min-h-300px">
@@ -132,9 +132,10 @@ onMounted(() => {
             :goal="t.goal"
             :status="t.status"
             :deadline="t.deadline"
-            :open-roles="t.openRoles"
+            :needed-roles="t.neededRoles"
             :member-count="t.memberCount"
             :target-size="t.targetSize"
+            :comment-count="t.commentCount"
             :expired="t.expired"
             :team-id="t.id"
           />

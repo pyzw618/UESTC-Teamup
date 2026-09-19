@@ -12,10 +12,14 @@ const props = withDefaults(defineProps<{
   goal: string;
   status: string;
   deadline?: string | null;
-  openRoles?: string[];
+  /** 期望招募的方向（neededRoles，卡片标签主体） */
+  neededRoles?: string[];
+  /** 已有成员数量（手填成员行数） */
   memberCount?: number;
-  /** 目标人数 = 当前成员数 + OPEN 名额数（服务端推导） */
+  /** 计划招募人数 */
   targetSize?: number | null;
+  /** 评论数（可选展示） */
+  commentCount?: number;
   competition?: { id: string; name: string };
   expired?: boolean;
   /** 传入则显示举报入口（招募卡片） */
@@ -30,24 +34,37 @@ const reportSubmitting = ref(false);
 const remaining = computed(() => {
   if (!props.deadline) return null;
   const d = daysLeft(props.deadline);
-  if (d == null) return null;
-  if (d < 0) return null;
+  if (d == null || d < 0) return null;
   return d;
 });
 
 const goalText = computed(() => TeamGoalLabel[props.goal as TeamGoal] ?? props.goal);
 const statusText = computed(() => TeamStatusLabel[props.status as TeamStatus] ?? props.status);
 
-const statusType = computed(() => {
+/** 状态点的颜色语义：招募=绿，满员=金，参赛=蓝，解散=灰 */
+const statusClass = computed(() => {
   switch (props.status) {
-    case 'RECRUITING': return 'success';
-    case 'PAUSED': return 'warning';
-    case 'FULL': return 'info';
-    case 'COMPETING': return 'primary';
-    case 'DISBANDED': return 'danger';
-    case 'ARCHIVED': return 'info';
-    default: return 'info';
+    case 'RECRUITING': return 'is-recruiting';
+    case 'FULL': return 'is-full';
+    case 'COMPETING': return 'is-competing';
+    default: return 'is-closed';
   }
+});
+
+const deadlineText = computed(() => {
+  if (props.expired) return '已截止';
+  if (remaining.value == null) return null;
+  if (remaining.value === 0) return '今天截止';
+  if (remaining.value <= 3) return `剩 ${remaining.value} 天`;
+  return `剩 ${remaining.value} 天`;
+});
+
+const deadlineHot = computed(() => remaining.value != null && remaining.value <= 3);
+
+const sizeText = computed(() => {
+  if (props.memberCount == null && props.targetSize == null) return null;
+  const cur = props.memberCount ?? 0;
+  return props.targetSize ? `${cur} / ${props.targetSize} 人` : `${cur} 人`;
 });
 
 function roleLabel(r: string) {
@@ -74,44 +91,40 @@ async function submitReport() {
 </script>
 
 <template>
-  <div class="flex flex-col gap-10px">
-    <div class="flex items-center gap-8px flex-wrap">
-      <el-tag :type="statusType as never" size="small" effect="light" round>{{ statusText }}</el-tag>
-      <span class="chip" style="background: rgba(245,185,1,0.14); color: #8a5800">🎯 {{ goalText }}</span>
-      <span v-if="competition" class="chip" style="background: rgba(15,76,140,0.08); color: var(--uestc-blue)">
-        {{ competition.name }}
+  <div class="tcm flex flex-col gap-9px">
+    <!-- 第一行：状态 + 目标 + 截止 + 评论数，统一胶囊规格 -->
+    <div class="tcm-tags">
+      <span class="tcm-chip" :class="statusClass">
+        <i class="tcm-dot" />{{ statusText }}
       </span>
-      <span
-        v-if="remaining != null"
-        class="chip"
-        :style="remaining <= 3 ? 'background:rgba(217,60,60,0.1);color:#c0392b' : 'background:rgba(15,76,140,0.07);color:var(--uestc-blue)'"
-      >
-        {{ remaining <= 0 ? '今天截止' : `剩 ${remaining} 天` }}
+      <span class="tcm-chip is-goal">🎯 {{ goalText }}</span>
+      <span v-if="competition" class="tcm-chip is-comp">{{ competition.name }}</span>
+      <span v-if="deadlineText" class="tcm-chip" :class="deadlineHot ? 'is-urgent' : 'is-muted'">
+        ⏱ {{ deadlineText }}
       </span>
-      <span v-else-if="expired" class="chip" style="background:rgba(0,0,0,0.06);color:var(--ink-faint)">已截止</span>
+      <span v-if="commentCount" class="tcm-chip is-muted">💬 {{ commentCount }}</span>
     </div>
 
-    <div v-if="openRoles" class="flex items-center gap-6px flex-wrap">
-      <span class="text-12px color-ink-soft">缺口：</span>
-      <template v-if="openRoles.length">
-        <el-tag v-for="r in openRoles" :key="r" size="small" effect="plain" round>{{ roleLabel(r) }}</el-tag>
+    <!-- 第二行：招募方向（卡片视觉主体） -->
+    <div class="tcm-roles">
+      <span class="tcm-roles-label">招</span>
+      <template v-if="neededRoles?.length">
+        <span v-for="r in neededRoles" :key="r" class="tcm-role">{{ roleLabel(r) }}</span>
       </template>
-      <span v-else class="text-12px color-ink-faint">暂无空缺</span>
+      <span v-else class="tcm-role is-open">方向不限</span>
     </div>
 
     <div class="flex items-center gap-8px">
       <UserAvatar :name="leader.nickname || leader.college || 'U'" :size="26" />
-      <span class="text-13px color-ink-soft">
+      <span class="text-13px color-ink-soft truncate">
         队长 {{ leader.nickname || '同学' }}
         <template v-if="leader.college"> · {{ leader.college }}</template>
         <template v-if="leader.grade"> · {{ leader.grade }} 级</template>
-        <template v-if="memberCount != null">
-          · 已有 {{ memberCount }}<template v-if="targetSize">/{{ targetSize }}</template> 人
-        </template>
+        <template v-if="sizeText"> · 已有 {{ sizeText }}</template>
       </span>
       <a
         v-if="teamId && auth.isLoggedIn"
-        class="report-link ml-auto text-12px cursor-pointer"
+        class="report-link ml-auto text-12px cursor-pointer shrink-0"
         title="举报该招募帖"
         @click.stop="openReport"
       >举报</a>
@@ -139,6 +152,84 @@ async function submitReport() {
 </template>
 
 <style scoped>
+/* ---- 统一标签体系：同高度、同圆角、同字重，颜色只靠语义类区分 ---- */
+.tcm-tags {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px;
+}
+.tcm-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  height: 24px;
+  padding: 0 10px;
+  border-radius: 999px;
+  font-size: 12px;
+  font-weight: 600;
+  line-height: 1;
+  white-space: nowrap;
+  background: rgba(15, 76, 140, 0.06);
+  color: var(--uestc-blue, #0f4c8c);
+}
+.tcm-dot {
+  width: 7px;
+  height: 7px;
+  border-radius: 999px;
+  background: currentColor;
+  flex-shrink: 0;
+}
+.tcm-chip.is-recruiting { background: rgba(64, 153, 117, 0.12); color: #2c7355; }
+.tcm-chip.is-full { background: rgba(245, 185, 1, 0.16); color: #8a5800; }
+.tcm-chip.is-competing { background: rgba(15, 76, 140, 0.12); color: #0f4c8c; }
+.tcm-chip.is-closed { background: rgba(0, 0, 0, 0.06); color: var(--ink-faint, #9aa3ad); }
+.tcm-chip.is-goal { background: rgba(245, 185, 1, 0.14); color: #8a5800; }
+.tcm-chip.is-comp {
+  max-width: 100%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  background: rgba(15, 76, 140, 0.06);
+}
+.tcm-chip.is-urgent { background: rgba(217, 60, 60, 0.1); color: #c0392b; }
+.tcm-chip.is-muted { background: rgba(0, 0, 0, 0.045); color: var(--ink-soft, #5d6670); font-weight: 500; }
+
+/* ---- 招募方向：卡片主体标签，实心蓝底更醒目 ---- */
+.tcm-roles {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px;
+}
+.tcm-roles-label {
+  font-size: 12px;
+  color: var(--ink-faint, #9aa3ad);
+  margin-right: 2px;
+}
+.tcm-role {
+  display: inline-flex;
+  align-items: center;
+  height: 26px;
+  padding: 0 12px;
+  border-radius: 8px;
+  font-size: 13px;
+  font-weight: 700;
+  color: #0f4c8c;
+  background: linear-gradient(135deg, rgba(15, 76, 140, 0.1), rgba(15, 76, 140, 0.05));
+  border: 1px solid rgba(15, 76, 140, 0.18);
+  transition: transform 0.15s ease-out, border-color 0.15s ease-out;
+}
+.tcm-role:hover {
+  transform: translateY(-1px);
+  border-color: rgba(15, 76, 140, 0.4);
+}
+.tcm-role.is-open {
+  color: var(--ink-faint, #9aa3ad);
+  background: rgba(0, 0, 0, 0.04);
+  border: 1px dashed rgba(0, 0, 0, 0.15);
+  font-weight: 500;
+}
+
 .report-link {
   color: var(--ink-faint);
   transition: color 0.15s ease-out;

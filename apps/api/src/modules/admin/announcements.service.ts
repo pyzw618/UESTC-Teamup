@@ -1,4 +1,5 @@
 import { Injectable, NotFoundException } from '@nestjs/common';
+import { NotificationKind } from '@prisma/client';
 import { PrismaService } from '../../common/prisma.service';
 
 @Injectable()
@@ -20,9 +21,22 @@ export class AnnouncementsService {
   async create(adminId: string, dto: { title: string; content: string }) {
     // 新公告发布时自动下线旧公告（站内只展示一条横幅）
     await this.prisma.announcement.updateMany({ where: { active: true }, data: { active: false } });
-    return this.prisma.announcement.create({
+    const ann = await this.prisma.announcement.create({
       data: { title: dto.title, content: dto.content, createdBy: adminId },
     });
+
+    // 同步投递到全体用户的消息中心（SYSTEM_NOTIFICATION），横幅只在首页弹一次
+    const users = await this.prisma.user.findMany({ where: { banned: false }, select: { id: true } });
+    if (users.length) {
+      await this.prisma.notification.createMany({
+        data: users.map((u) => ({
+          userId: u.id,
+          kind: NotificationKind.SYSTEM_NOTIFICATION,
+          payload: { announcementId: ann.id, title: ann.title, content: ann.content },
+        })),
+      });
+    }
+    return ann;
   }
 
   async toggle(id: string) {

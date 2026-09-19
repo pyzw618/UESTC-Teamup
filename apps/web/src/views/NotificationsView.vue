@@ -50,19 +50,21 @@ const payloadText = (n: NotificationItem): { title: string; desc: string; link?:
         link: '/calendar',
       };
     case 'APPLICATION_NEW':
-      return { title: '📥 收到新的入队申请', desc: '点击前往队伍处理', link: '/me/applications' };
+      return { title: '📥 收到新的入队申请', desc: '点击前往队伍处理', link: '/me/teams' };
     case 'APPLICATION_RESULT':
       return {
         title: p.kind === 'invitation' ? '📤 邀请有了结果' : p.accepted ? '🎉 你的申请已通过' : '申请被婉拒',
         desc: p.accepted ? '查看队伍信息，联系方式已解锁' : p.reason ? `理由：${p.reason}` : '继续寻找合适的队伍吧',
-        link: p.teamId ? `/teams/${p.teamId}` : '/me/applications',
+        link: p.teamId ? `/teams/${p.teamId}` : '/me/teams',
       };
     case 'INVITATION_NEW':
-      return { title: '✉️ 你收到一条入队邀请', desc: '点击前往处理', link: '/me/applications' };
+      return { title: '✉️ 你收到一条入队邀请', desc: '点击前往处理', link: '/me/teams' };
     case 'CORRECTION_NEW':
       return { title: '🔧 纠错处理通知', desc: String(p.message ?? (p.accepted ? '你的纠错已被采纳' : '有新的用户纠错待处理')), link: p.accepted ? undefined : '/admin/corrections' };
     case 'COMMENT_REPLY':
       return { title: '💬 你的留言有了回复', desc: '点击查看', link: `/competitions/${p.targetId}` };
+    case 'SYSTEM_NOTIFICATION':
+      return { title: `📢 ${String(p.title ?? n.kindLabel)}`, desc: String(p.content ?? '') };
     default:
       return { title: n.kindLabel, desc: '' };
   }

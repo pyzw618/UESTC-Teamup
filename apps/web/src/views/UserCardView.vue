@@ -21,14 +21,14 @@ const route = useRoute();
 const auth = useAuthStore();
 
 const user = ref<PublicCard | null>(null);
-const teams = ref<(TeamSummary & { competition?: { name: string }; memberCount?: number })[]>([]);
+const teams = ref<(TeamSummary & { competition?: { name: string } })[]>([]);
 const loading = ref(true);
 
 onMounted(async () => {
   try {
     const [u, t] = await Promise.all([
       api.get<PublicCard>(`/users/${route.params.id}`),
-      api.get<(TeamSummary & { competition?: { name: string }; memberCount?: number })[]>(`/users/${route.params.id}/teams`),
+      api.get<(TeamSummary & { competition?: { name: string } })[]>(`/users/${route.params.id}/teams`),
     ]);
     user.value = u;
     teams.value = t;
@@ -90,7 +90,7 @@ onMounted(async () => {
           >
             <div class="text-14px font-semibold color-ink">{{ t.competition?.name || '队伍' }}</div>
             <div class="text-12px color-ink-faint mt-2px">
-              状态：{{ t.status }} · 目标：{{ t.goal }}<template v-if="t.memberCount != null"> · 成员 {{ t.memberCount }} 人</template>
+              状态：{{ t.status }} · 目标：{{ t.goal }}
             </div>
           </div>
           <el-empty v-if="!teams.length" description="暂无参与的队伍" :image-size="54" />

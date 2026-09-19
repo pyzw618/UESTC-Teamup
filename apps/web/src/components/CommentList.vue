@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { ref } from 'vue';
+import { ref, watch, onMounted } from 'vue';
 import dayjs from 'dayjs';
 import relativeTime from 'dayjs/plugin/relativeTime';
 import { ElMessage } from 'element-plus';
@@ -12,17 +12,35 @@ dayjs.extend(relativeTime);
 dayjs.locale('zh-cn');
 
 const props = defineProps<{
-  comments: CommentItem[];
   targetType: 'COMPETITION' | 'POST' | 'TEAM';
   targetId: string;
 }>();
 const emit = defineEmits<{ posted: [] }>();
 
 const auth = useAuthStore();
+const comments = ref<CommentItem[]>([]);
+const loading = ref(false);
 const content = ref('');
 const submitting = ref(false);
 const replyTo = ref<CommentItem | null>(null);
 const replyContent = ref('');
+
+async function load() {
+  if (!props.targetId) return;
+  loading.value = true;
+  try {
+    comments.value = await api.get<CommentItem[]>(
+      `/comments?targetType=${props.targetType}&targetId=${props.targetId}`,
+    );
+  } catch {
+    comments.value = [];
+  } finally {
+    loading.value = false;
+  }
+}
+
+watch(() => props.targetId, load);
+onMounted(load);
 
 async function post() {
   if (!content.value.trim()) return;
@@ -30,7 +48,7 @@ async function post() {
   try {
     await api.post('/comments', { targetType: props.targetType, targetId: props.targetId, content: content.value.trim() });
     content.value = '';
-    ElMessage.success('已发布');
+    await load();
     emit('posted');
   } catch (e) {
     ElMessage.error(e instanceof Error ? e.message : '发布失败');
@@ -50,9 +68,41 @@ async function reply(item: CommentItem) {
     });
     replyContent.value = '';
     replyTo.value = null;
+    await load();
     emit('posted');
   } catch (e) {
     ElMessage.error(e instanceof Error ? e.message : '回复失败');
+  }
+}
+
+/** 点赞 / 取消点赞：本地即时反馈，后端幂等切换 */
+async function toggleLike(item: CommentItem) {
+  if (!auth.isLoggedIn) {
+    ElMessage.info('登录后才能点赞');
+    return;
+  }
+  // 乐观更新
+  const nextLiked = !item.liked;
+  item.likes = Math.max(0, item.likes + (nextLiked ? 1 : -1));
+  item.liked = nextLiked;
+  try {
+    const res = await api.post<{ liked: boolean; likes: number }>(`/comments/${item.id}/like`);
+    item.liked = res.liked;
+    item.likes = res.likes;
+  } catch (e) {
+    // 回滚
+    item.liked = !nextLiked;
+    item.likes = Math.max(0, item.likes + (nextLiked ? -1 : 1));
+    ElMessage.error(e instanceof Error ? e.message : '点赞失败');
+  }
+}
+
+async function remove(item: CommentItem) {
+  try {
+    await api.delete(`/comments/${item.id}`);
+    await load();
+  } catch (e) {
+    ElMessage.error(e instanceof Error ? e.message : '删除失败');
   }
 }
 
@@ -62,7 +112,7 @@ function time(s: string) {
 </script>
 
 <template>
-  <div>
+  <div v-loading="loading">
     <div v-if="auth.isLoggedIn" class="flex gap-10px mb-18px">
       <el-input
         v-model="content"
@@ -76,7 +126,7 @@ function time(s: string) {
       后参与讨论
     </div>
 
-    <el-empty v-if="!comments.length" description="还没有留言" :image-size="54" />
+    <el-empty v-if="!comments.length && !loading" description="还没有留言" :image-size="54" />
 
     <div class="flex flex-col gap-14px">
       <div v-for="c in comments" :key="c.id" class="flex gap-10px">
@@ -86,8 +136,21 @@ function time(s: string) {
             <span class="text-13px font-semibold color-ink">{{ c.author.nickname || '同学' }}</span>
             <span class="text-12px color-ink-faint">{{ c.author.college || '' }} {{ time(c.createdAt) }}</span>
             <a v-if="auth.isLoggedIn" class="text-12px color-uestc-500 cursor-pointer" @click="replyTo = replyTo?.id === c.id ? null : c">回复</a>
+            <a v-if="auth.isLoggedIn && auth.user?.id === c.author.id" class="text-12px color-ink-faint cursor-pointer hover:text-red" @click="remove(c)">删除</a>
           </div>
           <p class="text-14px color-ink m-0 mt-2px whitespace-pre-wrap">{{ c.content }}</p>
+
+          <div class="mt-6px">
+            <button
+              class="like-btn"
+              :class="{ liked: c.liked }"
+              type="button"
+              @click.stop="toggleLike(c)"
+            >
+              <span class="like-icon">{{ c.liked ? '❤️' : '🤍' }}</span>
+              <span v-if="c.likes > 0">{{ c.likes }}</span>
+            </button>
+          </div>
 
           <!-- 楼中楼 -->
           <div v-if="c.replies?.length" class="mt-8px flex flex-col gap-8px pl-10px border-l-2 border-rgba(15,76,140,0.08)">
@@ -97,6 +160,15 @@ function time(s: string) {
                 <span class="text-12px font-semibold color-ink">{{ r.author.nickname || '同学' }}</span>
                 <span class="text-11px color-ink-faint ml-6px">{{ time(r.createdAt) }}</span>
                 <p class="text-13px color-ink-soft m-0">{{ r.content }}</p>
+                <button
+                  class="like-btn"
+                  :class="{ liked: r.liked }"
+                  type="button"
+                  @click.stop="toggleLike(r)"
+                >
+                  <span class="like-icon">{{ r.liked ? '❤️' : '🤍' }}</span>
+                  <span v-if="r.likes > 0">{{ r.likes }}</span>
+                </button>
               </div>
             </div>
           </div>
@@ -110,3 +182,30 @@ function time(s: string) {
     </div>
   </div>
 </template>
+
+<style scoped>
+.like-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  border: none;
+  background: transparent;
+  padding: 2px 8px;
+  border-radius: 999px;
+  font-size: 12px;
+  color: var(--ink-faint, #9aa3ad);
+  cursor: pointer;
+  transition: background 0.15s ease-out, color 0.15s ease-out;
+}
+.like-btn:hover {
+  background: rgba(217, 60, 60, 0.08);
+  color: #c0392b;
+}
+.like-btn.liked {
+  color: #c0392b;
+}
+.like-icon {
+  font-size: 13px;
+  line-height: 1;
+}
+</style>

@@ -46,15 +46,29 @@ export class UsersService {
   ) {
     const { skills, ...profile } = data;
 
+    // 字段清单：注册资料中 昵称/学院/年级/专业 必填，不能清空
+    if (profile.nickname !== undefined && !profile.nickname.trim()) {
+      throw new BadRequestException('昵称必填');
+    }
+    if (profile.college !== undefined && !profile.college.trim()) {
+      throw new BadRequestException('学院必填');
+    }
+    if (profile.major !== undefined && !profile.major.trim()) {
+      throw new BadRequestException('专业必填');
+    }
+    if (profile.grade !== undefined && profile.grade == null) {
+      throw new BadRequestException('年级必填');
+    }
+
     await this.prisma.$transaction(async (tx) => {
       await tx.user.update({
         where: { id: userId },
         data: {
-          nickname: profile.nickname?.trim() || null,
-          college: profile.college?.trim() || null,
-          grade: profile.grade ?? null,
-          major: profile.major?.trim() || null,
-          bio: profile.bio?.trim() || null,
+          ...(profile.nickname !== undefined ? { nickname: profile.nickname.trim() } : {}),
+          ...(profile.college !== undefined ? { college: profile.college.trim() } : {}),
+          ...(profile.grade !== undefined ? { grade: profile.grade } : {}),
+          ...(profile.major !== undefined ? { major: profile.major.trim() } : {}),
+          ...(profile.bio !== undefined ? { bio: profile.bio.trim() || null } : {}),
         },
       });
 
@@ -75,14 +89,11 @@ export class UsersService {
     return this.myProfile(userId);
   }
 
-  /** 公开名片：半匿名，同队解锁完整信息 */
+  /** 公开名片 */
   async publicCard(id: string) {
     const user = await this.prisma.user.findUnique({
       where: { id },
-      include: {
-        skills: true,
-        memberships: { where: { active: true }, select: { teamId: true } },
-      },
+      include: { skills: true },
     });
     if (!user) throw new NotFoundException('用户不存在');
 
@@ -95,23 +106,14 @@ export class UsersService {
       bio: user.bio,
       studentNo: user.studentNo,
       skills: user.skills,
-      teamIds: user.memberships.map((m) => m.teamId),
+      teamIds: [],
     });
   }
 
-  /** 名片上的"正在参与的队伍"（招募中/已参赛） */
+  /** 名片上的"发布的招募帖"（招募中/已参赛） */
   async publicTeams(id: string) {
-    const memberships = await this.prisma.teamMember.findMany({
-      where: { userId: id, active: true },
-      select: { teamId: true },
-    });
-    const teamIds = memberships.map((m) => m.teamId);
-    const led = await this.prisma.team.findMany({ where: { leaderId: id }, select: { id: true } });
-    const all = [...new Set([...teamIds, ...led.map((t) => t.id)])];
-    if (all.length === 0) return [];
-
-    return this.prisma.team.findMany({
-      where: { id: { in: all }, status: { in: ['RECRUITING', 'COMPETING'] } },
+    const led = await this.prisma.team.findMany({
+      where: { leaderId: id, status: { in: ['RECRUITING', 'COMPETING'] } },
       select: {
         id: true,
         goal: true,
@@ -121,6 +123,7 @@ export class UsersService {
       take: 10,
       orderBy: { createdAt: 'desc' },
     });
+    return led;
   }
 
   /** 管理员：用户列表 */

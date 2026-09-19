@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { ref, computed, onMounted } from 'vue';
+import { ref, onMounted } from 'vue';
 import { useRoute, useRouter } from 'vue-router';
 import { ElMessage } from 'element-plus';
 import { RoleType, RoleTypeLabel, TeamGoal, TeamGoalLabel } from '@teamup/shared';
@@ -15,12 +15,12 @@ const form = ref({
   competitionName: '',
   manualMode: false,
   goal: undefined as TeamGoal | undefined,
+  neededRoles: [] as RoleType[],
   requirement: '',
   contact: '',
   deadline: null as string | null,
-  // 每个方向一行，可设数量（算法 ×2、论文 ×1），允许同一 role 多行
-  slots: [] as { role: RoleType | null; count: number; note: string }[],
-  members: [] as { role: RoleType | null; rank: string; grade: null | number; college: string; note: string }[],
+  targetSize: null as number | null,
+  members: [] as { grade: number | null; college: string; major: string; rank: string; intro: string }[],
 });
 const submitting = ref(false);
 
@@ -29,11 +29,6 @@ const roleOptions = Object.values(RoleType).map((r) => ({ value: r, label: RoleT
 
 const competitionOptions = ref<{ id: string; name: string }[]>([]);
 const competitionSearching = ref(false);
-
-/** 目标人数 = 已有成员（含自己）+ 展开后的名额数 */
-const targetSize = computed(
-  () => 1 + form.value.members.length + form.value.slots.reduce((sum, s) => sum + (s.role ? Math.max(1, s.count) : 0), 0),
-);
 
 async function searchCompetition(word: string) {
   if (!word.trim()) return;
@@ -72,13 +67,9 @@ function switchToSelect() {
   form.value.manualMode = false;
   form.value.competitionName = '';
 }
-function addSlot() {
-  if (form.value.slots.length >= 10) return;
-  form.value.slots.push({ role: null, count: 1, note: '' });
-}
 function addMember() {
-  if (form.value.members.length >= 10) return;
-  form.value.members.push({ role: null, rank: '', grade: null, college: '', note: '' });
+  if (form.value.members.length >= 20) return;
+  form.value.members.push({ grade: null, college: '', major: '', rank: '', intro: '' });
 }
 
 async function submit() {
@@ -94,16 +85,10 @@ async function submit() {
     ElMessage.warning('请选择队伍目标');
     return;
   }
-  const validSlots = form.value.slots.filter((s) => s.role);
-  if (!validSlots.length) {
-    ElMessage.warning('请至少添加一个缺口方向');
+  if (!form.value.contact.trim()) {
+    ElMessage.warning('请填写联系方式（微信/QQ），感兴趣的同学要直接联系你');
     return;
   }
-
-  // 展开为真实名额：算法 ×2 -> 两个 ALGORITHM slot
-  const slots = validSlots.flatMap((s) =>
-    Array.from({ length: Math.max(1, Math.min(10, s.count)) }, () => ({ role: s.role as RoleType, note: s.note || undefined })),
-  );
 
   submitting.value = true;
   try {
@@ -111,20 +96,20 @@ async function submit() {
       competitionId: form.value.manualMode ? undefined : form.value.competitionId,
       competitionName: form.value.manualMode ? form.value.competitionName.trim() : undefined,
       goal: form.value.goal,
+      neededRoles: form.value.neededRoles,
       requirement: form.value.requirement || undefined,
-      contact: form.value.contact || undefined,
+      contact: form.value.contact.trim(),
       deadline: form.value.deadline || undefined,
-      slots,
-      // 只录入平台外成员：不传 userId，平台用户须走申请/邀请
+      targetSize: form.value.targetSize ?? undefined,
       members: form.value.members.map((m) => ({
-        role: m.role ?? undefined,
-        rank: m.rank || undefined,
         grade: m.grade ?? undefined,
         college: m.college || undefined,
-        note: m.note || undefined,
+        major: m.major || undefined,
+        rank: m.rank || undefined,
+        intro: m.intro || undefined,
       })),
     });
-    ElMessage.success('组队帖已发布，等队友来找你吧！');
+    ElMessage.success('招募帖已上墙，坐等同学加你！');
     router.push(`/teams/${team.id}`);
   } catch (e) {
     ElMessage.error(e instanceof Error ? e.message : '发布失败');
@@ -138,8 +123,8 @@ void auth;
 
 <template>
   <div class="page-wrap max-w-760px mx-auto">
-    <h1 class="text-28px font-extrabold m-0 mb-4px">发布组队</h1>
-    <p class="text-13px color-ink-soft m-0 mb-18px">带 <span style="color: #d99f00">*</span> 为必填 · 同一方向可填多个名额</p>
+    <h1 class="text-28px font-extrabold m-0 mb-4px">发布招募帖</h1>
+    <p class="text-13px color-ink-soft m-0 mb-18px">带 <span style="color: #d99f00">*</span> 为必填 · 发出后同学会直接通过联系方式找到你</p>
 
     <div class="glass p-24px flex flex-col gap-20px">
       <!-- 1. 竞赛：选择菜单 / 手动填写 -->
@@ -178,50 +163,64 @@ void auth;
         </el-radio-group>
       </div>
 
-      <!-- 3. 缺口方向（支持同一方向多个名额） -->
+      <!-- 3. 招募方向标签 -->
       <div>
-        <div class="form-label">缺口方向 <span class="req">*</span></div>
-        <p class="text-12px color-ink-faint m-0 mb-8px">例如「算法 ×2，论文 ×1」。当前目标人数：{{ targetSize }} 人（含你自己与已录入成员）</p>
-        <div class="flex flex-col gap-8px">
-          <div
-            v-for="(s, i) in form.slots"
-            :key="i"
-            class="grid grid-cols-1 md:grid-cols-[1fr_120px_1fr_auto] gap-8px items-center rounded-12px p-10px"
-            style="background: rgba(255, 255, 255, 0.5)"
-          >
-            <el-select v-model="s.role" placeholder="角色方向">
-              <el-option v-for="r in roleOptions" :key="r.value" :value="r.value" :label="r.label" />
-            </el-select>
-            <el-input-number v-model="s.count" :min="1" :max="10" controls-position="right" style="width: 100%" />
-            <el-input v-model="s.note" placeholder="备注（选填）" maxlength="200" />
-            <el-button type="danger" plain circle size="small" @click="form.slots.splice(i, 1)">
-              <el-icon><i-ep-delete /></el-icon>
-            </el-button>
-          </div>
-          <el-button plain round size="small" class="self-start" @click="addSlot">+ 添加缺口方向</el-button>
-        </div>
+        <div class="form-label">招募方向（选填，可多选）</div>
+        <p class="text-12px color-ink-faint m-0 mb-8px">会以标签形式展示在卡片上，方便同学按方向找到你</p>
+        <el-select
+          v-model="form.neededRoles"
+          multiple
+          filterable
+          collapse-tags
+          collapse-tags-tooltip
+          placeholder="例如：算法、前端、论文"
+          style="width: 100%"
+          size="large"
+        >
+          <el-option v-for="r in roleOptions" :key="r.value" :value="r.value" :label="r.label" />
+        </el-select>
       </div>
 
-      <!-- 4. 已有成员情况（仅平台外成员） -->
+      <!-- 4. 招募要求 -->
       <div>
-        <div class="form-label">已有成员情况（选填，仅平台外成员）</div>
-        <p class="text-12px color-ink-faint m-0 mb-8px">平台注册同学请勿在此录入，须通过「申请 / 邀请」流程加入。</p>
-        <div class="flex flex-col gap-8px">
+        <div class="form-label">招募要求</div>
+        <el-input
+          v-model="form.requirement"
+          type="textarea"
+          :rows="4"
+          maxlength="2000"
+          show-word-limit
+          placeholder="技能要求、期望人数、投入时长、面试方式…（自由填写）"
+        />
+      </div>
+
+      <!-- 4. 计划招募人数 -->
+      <div>
+        <div class="form-label">计划招募人数（含自己）</div>
+        <el-input-number v-model="form.targetSize" :min="1" :max="99" controls-position="right" style="width: 200px" placeholder="如 3" />
+        <p class="text-12px color-ink-faint m-0 mt-6px">选填。已有成员数量按下方名单自动统计</p>
+      </div>
+
+      <!-- 5. 已有成员情况（队长手填，纯展示） -->
+      <div>
+        <div class="form-label">已有成员情况（选填）</div>
+        <p class="text-12px color-ink-faint m-0 mb-8px">平台不管理成员身份，这里只是展示信息——加入仍在平台外通过联系方式进行。成员介绍里可以写称呼。</p>
+        <div class="flex flex-col gap-10px">
           <div
             v-for="(m, i) in form.members"
             :key="i"
-            class="grid grid-cols-2 md:grid-cols-5 gap-8px items-center rounded-12px p-10px"
+            class="rounded-12px p-12px flex flex-col gap-8px"
             style="background: rgba(255,255,255,0.5)"
           >
-            <el-select v-model="m.role" placeholder="角色" clearable>
-              <el-option v-for="r in roleOptions" :key="r.value" :value="r.value" :label="r.label" />
-            </el-select>
-            <el-input v-model="m.rank" placeholder="排名" />
-            <el-input-number v-model="m.grade" placeholder="年级" :min="2015" :max="2035" controls-position="right" style="width: 100%" />
-            <el-input v-model="m.college" placeholder="学院" />
-            <div class="flex gap-6px">
-              <el-input v-model="m.note" placeholder="备注" />
-              <el-button type="danger" plain circle size="small" @click="form.members.splice(i, 1)">
+            <div class="grid grid-cols-2 md:grid-cols-4 gap-8px">
+              <el-input-number v-model="m.grade" placeholder="年级" :min="2015" :max="2035" controls-position="right" style="width: 100%" />
+              <el-input v-model="m.college" placeholder="学院" maxlength="40" />
+              <el-input v-model="m.major" placeholder="专业" maxlength="40" />
+              <el-input v-model="m.rank" placeholder="rank（如 前 15%）" maxlength="40" />
+            </div>
+            <div class="flex gap-8px">
+              <el-input v-model="m.intro" type="textarea" :rows="2" placeholder="成员介绍：称呼、方向、经历…" maxlength="500" />
+              <el-button type="danger" plain circle size="small" class="self-start" @click="form.members.splice(i, 1)">
                 <el-icon><i-ep-delete /></el-icon>
               </el-button>
             </div>
@@ -230,26 +229,21 @@ void auth;
         </div>
       </div>
 
-      <!-- 5. 招募要求 -->
-      <div>
-        <div class="form-label">招募要求</div>
-        <el-input v-model="form.requirement" type="textarea" :rows="3" placeholder="技能要求、投入时长、面试方式…" />
-      </div>
-
-      <!-- 6. 招募截止 / 联系方式 -->
+      <!-- 6. 联系方式 / 招募截止 -->
       <div class="grid grid-cols-1 md:grid-cols-2 gap-16px">
         <div>
-          <div class="form-label">招募截止</div>
-          <el-date-picker v-model="form.deadline" type="date" placeholder="截止日" style="width: 100%" value-format="YYYY-MM-DD" />
+          <div class="form-label">联系方式 <span class="req">*</span></div>
+          <el-input v-model="form.contact" size="large" maxlength="200" placeholder="微信 / QQ 号，将直接公开展示" />
+          <p class="text-12px color-ink-faint m-0 mt-6px">平台不提供私聊与申请审批，同学看到帖子后会直接加你</p>
         </div>
         <div>
-          <div class="form-label">联系方式</div>
-          <el-input v-model="form.contact" placeholder="申请通过后队友才可见" />
+          <div class="form-label">招募截止</div>
+          <el-date-picker v-model="form.deadline" type="date" placeholder="截止日（选填）" style="width: 100%" value-format="YYYY-MM-DD" />
         </div>
       </div>
 
       <el-button type="primary" size="large" round :loading="submitting" @click="submit">
-        {{ submitting ? '发布中…' : '发布组队帖' }}
+        {{ submitting ? '发布中…' : '发布招募帖' }}
       </el-button>
     </div>
   </div>

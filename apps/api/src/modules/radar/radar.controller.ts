@@ -84,31 +84,23 @@ export class RadarController {
     const detail = await this.competitions.detail(id);
     const recruitingTeamsCount = detail.recruitingTeams.length;
     // 组队招募信息不是互联网公开信息：游客只能看到“有多少支队伍正在招募”，
-    // 拿不到队伍详情 / 队长 / 成员 / 缺口。权限在服务端实施，不能只靠前端遮挡。
+    // 拿不到帖子详情 / 队长 / 联系方式。权限在服务端实施，不能只靠前端遮挡。
     if (!user) {
       return { ...detail, recruitingTeams: [], recruitingTeamsCount };
     }
     return {
       ...detail,
       recruitingTeamsCount,
-      recruitingTeams: detail.recruitingTeams.map((t) => {
-        const openSlots = t.slots.filter((s) => s.status === 'OPEN');
-        return {
-          id: t.id,
-          goal: t.goal,
-          status: t.status,
-          deadline: t.deadline,
-          slots: t.slots,
-          openRoles: [...new Set(openSlots.map((s) => s.role))],
-          memberCount: t.members.length,
-          remaining: openSlots.length,
-          pendingCount: t._count.applications,
-          leader: this.serializer.serialize({
-            ...t.leader,
-            teamIds: t.leader.memberships.map((m) => m.teamId),
-          }),
-        };
-      }),
+      recruitingTeams: detail.recruitingTeams.map((t) => ({
+        id: t.id,
+        goal: t.goal,
+        status: t.status,
+        deadline: t.deadline,
+        neededRoles: t.neededRoles,
+        targetSize: t.targetSize,
+        memberCount: t._count.members,
+        leader: this.serializer.serialize({ ...t.leader, teamIds: [] }),
+      })),
     };
   }
 
@@ -142,13 +134,19 @@ export class RadarController {
 
   @Public()
   @Get('comments')
-  listComments(@Query('targetType') targetType: CommentTarget, @Query('targetId') targetId: string) {
-    return this.comments.list(targetType, targetId);
+  listComments(@CurrentUser() user?: User, @Query('targetType') targetType?: CommentTarget, @Query('targetId') targetId?: string) {
+    return this.comments.list(targetType as CommentTarget, targetId as string, user?.id);
   }
 
   @Post('comments')
   createComment(@CurrentUser() user: User, @Body() dto: CommentDto) {
     return this.comments.create(user.id, dto);
+  }
+
+  /** 点赞 / 取消点赞（幂等切换） */
+  @Post('comments/:id/like')
+  toggleCommentLike(@CurrentUser() user: User, @Param('id') id: string) {
+    return this.comments.toggleLike(user.id, id);
   }
 
   @Delete('comments/:id')

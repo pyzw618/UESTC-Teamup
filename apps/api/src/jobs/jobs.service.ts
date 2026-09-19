@@ -60,10 +60,10 @@ export class JobsService {
     this.logger.log(`DDL 提醒发送 ${sent} 条`);
   }
 
-  /** 每日 03:30 队伍状态归档 */
+  /** 每日 03:30 按竞赛时间线自动把招募帖置为「已参赛」 */
   @Cron('0 30 3 * * *')
-  async archiveTeams() {
-    const result = await this.teams.archiveExpired();
-    if (result.archived > 0) this.logger.log(`自动归档过期队伍 ${result.archived} 支`);
+  async autoCompeteTeams() {
+    const result = await this.teams.autoCompete();
+    if (result.updated > 0) this.logger.log(`自动置为已参赛的帖子 ${result.updated} 条`);
   }
 }

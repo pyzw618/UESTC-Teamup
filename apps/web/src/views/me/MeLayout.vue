@@ -8,8 +8,7 @@ const auth = useAuthStore();
 
 const tabs = [
   { path: '/me/profile', label: '资料编辑' },
-  { path: '/me/teams', label: '我的队伍' },
-  { path: '/me/applications', label: '我的申请' },
+  { path: '/me/teams', label: '我的招募帖' },
   { path: '/me/favorites', label: '我的关注' },
 ];
 </script>

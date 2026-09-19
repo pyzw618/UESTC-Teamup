@@ -50,23 +50,13 @@ export interface CompetitionDetail extends CompetitionListItem {
     endAt: string | null;
     isLocked: boolean;
   }[];
-  /** 正在招募的队伍数量（游客亦可获取） */
-  recruitingTeamsCount?: number;
   awards: { id: string; year: number | null; awardName: string | null; teamName: string | null; members: string[] }[];
   materials: { id: string; kind: string; title: string; url: string }[];
   recruitingTeamsList?: TeamSummary[];
   createdAt: string;
 }
 
-export type SlotStatusValue = 'OPEN' | 'FILLED' | 'CLOSED';
-
-export interface TeamSlotView {
-  id: string;
-  role: string;
-  status: SlotStatusValue;
-  note?: string | null;
-}
-
+/** 招募帖（广告牌模式）：无名额/成员概念，联系方式直接公开 */
 export interface TeamLeaderView {
   id: string;
   nickname: string | null;
@@ -76,17 +66,17 @@ export interface TeamLeaderView {
   studentNo?: string;
 }
 
+/** 竞赛详情页内嵌的招募帖摘要 */
 export interface TeamSummary {
   id: string;
   goal: string;
   status: string;
   deadline: string | null;
-  slots: TeamSlotView[];
-  openRoles: string[];
-  memberCount: number;
-  remaining: number;
-  targetSize: number;
-  pendingCount?: number;
+  neededRoles: string[];
+  /** 计划招募人数（队长手填） */
+  targetSize?: number | null;
+  /** 已有成员数量 = 手填成员行数 */
+  memberCount?: number;
   leader: TeamLeaderView;
 }
 
@@ -95,17 +85,25 @@ export interface TeamListItem {
   goal: string;
   status: string;
   deadline: string | null;
+  neededRoles: string[];
   expired: boolean;
+  /** 计划招募人数（队长手填，展示用） */
+  targetSize: number | null;
+  /** 已有成员数量（派生） */
+  memberCount: number;
   competition: { id: string; name: string };
   leader: TeamLeaderView;
-  slots: TeamSlotView[];
-  openRoles: string[];
-  /** 以下均为服务端由 TeamMember / TeamSlot 实时推导，不使用手填字段 */
-  memberCount: number;
-  remaining: number;
-  targetSize: number;
-  pendingCount: number;
+  commentCount: number;
   createdAt: string;
+}
+
+export interface TeamDetail extends TeamListItem {
+  requirement: string | null;
+  contact: string;
+  competition: { id: string; name: string; levels: string[]; officialUrl: string | null };
+  /** 已有成员情况（队长手填，纯展示） */
+  members: { id: string; grade: number | null; college: string | null; major: string | null; rank: string | null; intro: string | null }[];
+  viewer: { isLeader: boolean };
 }
 
 export interface NotificationItem {
@@ -147,6 +145,10 @@ export interface CommentItem {
   id: string;
   content: string;
   parentId: string | null;
+  /** 点赞数（冗余计数，由后端 CommentLike 维护） */
+  likes: number;
+  /** 当前登录用户是否已点赞 */
+  liked: boolean;
   createdAt: string;
   author: { id: string; nickname: string | null; college: string | null; grade: number | null; major: string | null };
   replies: CommentItem[];

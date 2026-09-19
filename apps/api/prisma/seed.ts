@@ -393,14 +393,9 @@ async function main() {
   console.log('清空旧数据…');
   await prisma.$transaction([
     prisma.notification.deleteMany(),
+    prisma.commentLike.deleteMany(),
     prisma.comment.deleteMany(),
     prisma.favorite.deleteMany(),
-    prisma.application.deleteMany(),
-    prisma.invitation.deleteMany(),
-    prisma.teamSlot.deleteMany(),
-    prisma.teamMember.deleteMany(),
-    prisma.review.deleteMany(),
-    prisma.workspace.deleteMany(),
     prisma.team.deleteMany(),
     prisma.correctionReport.deleteMany(),
     prisma.crawlRevision.deleteMany(),
@@ -518,21 +513,23 @@ async function main() {
     ],
   });
 
-  console.log('写入队伍…');
+  console.log('写入招募帖…');
   const ddl = (s: string) => new Date(s);
+  const teamIds: Record<string, string> = {};
 
   const teamsData = [
     {
       competitionName: '全国大学生电子设计竞赛',
       leaderNick: '陈软硬件都会',
       goal: TeamGoal.PRIZE,
+      neededRoles: [RoleType.HARDWARE, RoleType.PAPER],
       requirement: '缺硬件和论文队友。有 STM32 开发经验优先，每周能到实验室 3 次以上，目标省一冲国奖。',
-      contact: '队内可见',
+      contact: 'QQ 2451109901（备注：电赛组队）',
       deadline: ddl('2026-10-20T16:00:00Z'),
-      slots: [{ role: RoleType.HARDWARE }, { role: RoleType.PAPER }],
+      targetSize: 4,
       members: [
-        { userId: '陈软硬件都会', note: '队长' },
-        { displayName: '刘同学', role: RoleType.MODELING, rank: '前 15%', grade: 2024, college: '自动化工程学院' },
+        { grade: 2024, college: '信息与通信工程学院', major: '电子信息工程', rank: '前 10%', intro: '陈同学（队长），软硬件都会，负责整体方案与嵌入式开发。' },
+        { grade: 2024, college: '自动化工程学院', major: '自动化', rank: '前 15%', intro: '刘同学，负责建模与仿真，熟悉 MATLAB。' },
       ],
       status: TeamStatus.RECRUITING,
     },
@@ -540,32 +537,42 @@ async function main() {
       competitionName: '全国大学生数学建模竞赛',
       leaderNick: '李建模',
       goal: TeamGoal.NATIONAL_FIRST,
+      neededRoles: [RoleType.ALGORITHM],
       requirement: '三人队还缺一名编程手（Python/MATLAB 均可），最好有数值算法功底，赛前一起刷真题。',
+      contact: '微信 ljianmo2024',
       deadline: ddl('2027-09-03T16:00:00Z'),
-      slots: [{ role: RoleType.ALGORITHM }],
-      members: [{ userId: '李建模', note: '队长' }],
+      targetSize: 3,
+      members: [
+        { grade: 2024, college: '数学科学学院', major: '数学与应用数学', rank: '前 5%', intro: '李同学（队长），建模与论文写作。' },
+      ],
       status: TeamStatus.RECRUITING,
     },
     {
       competitionName: 'ACM-ICPC 国际大学生程序设计竞赛',
       leaderNick: '张算法',
       goal: TeamGoal.PRACTICE,
+      neededRoles: [RoleType.ALGORITHM, RoleType.OTHER],
       requirement: '招一名能稳定出的队友，Codeforces 1600+ 优先，一起备战济南区域赛。',
+      contact: 'QQ 1133246670',
       deadline: ddl('2026-09-30T16:00:00Z'),
-      slots: [{ role: RoleType.ALGORITHM }, { role: RoleType.OTHER }],
-      members: [{ userId: '张算法', note: '队长' }],
+      targetSize: 3,
+      members: [
+        { grade: 2023, college: '计算机科学与工程学院', major: '计算机科学与技术', rank: '前 3%', intro: '张同学（队长），CF 1900，主写代码。' },
+      ],
       status: TeamStatus.RECRUITING,
     },
     {
       competitionName: '中国国际大学生创新大赛',
       leaderNick: '王前端',
       goal: TeamGoal.BONUS_ONLY,
+      neededRoles: [RoleType.DEFENSE, RoleType.PAPER],
       requirement: '已有完整项目（AI+医疗方向），缺路演和商业计划书撰写队友，加分为主、拿奖随缘。',
+      contact: '微信 wangfd_uestc',
       deadline: ddl('2026-09-28T16:00:00Z'),
-      slots: [{ role: RoleType.DEFENSE }, { role: RoleType.PAPER }],
+      targetSize: 5,
       members: [
-        { userId: '王前端', note: '队长' },
-        { displayName: '郑同学', role: RoleType.BACKEND, grade: 2024, college: '信息与软件工程学院' },
+        { grade: 2025, college: '信息与软件工程学院', major: '软件工程', rank: '前 20%', intro: '王同学（队长），负责前端与产品演示。' },
+        { grade: 2024, college: '信息与软件工程学院', major: '软件工程', rank: null, intro: '郑同学，负责后端开发。' },
       ],
       status: TeamStatus.RECRUITING,
     },
@@ -573,49 +580,35 @@ async function main() {
       competitionName: '全国大学生机器人大赛（CURC）',
       leaderNick: '雷达站长',
       goal: TeamGoal.PRACTICE,
+      neededRoles: [RoleType.HARDWARE, RoleType.ALGORITHM, RoleType.FRONTEND],
       requirement: '机器人队秋季招新，机械/电控/视觉三个方向都要人，氛围好、经费足。',
+      contact: 'QQ 986312504（机器人队招新群）',
       deadline: ddl('2026-10-15T16:00:00Z'),
-      slots: [{ role: RoleType.HARDWARE }, { role: RoleType.ALGORITHM }, { role: RoleType.FRONTEND }],
+      targetSize: 8,
       members: [
-        { userId: '雷达站长', note: '队长' },
-        { displayName: '冯同学', role: RoleType.HARDWARE, rank: '前 20%', grade: 2023, college: '机械与电气工程学院' },
+        { grade: 2024, college: '信息与通信工程学院', major: '信息工程', rank: '前 10%', intro: '雷达站长（队长），负责组织与电控。' },
+        { grade: 2023, college: '机械与电气工程学院', major: '机械设计制造及其自动化', rank: '前 20%', intro: '冯同学，负责机械结构设计。' },
       ],
       status: TeamStatus.RECRUITING,
     },
   ];
 
   for (const t of teamsData) {
-    const competitionId = compIds[t.competitionName];
-    const leaderId = users[t.leaderNick];
     const team = await prisma.team.create({
       data: {
-        competitionId,
-        leaderId,
+        competitionId: compIds[t.competitionName],
+        leaderId: users[t.leaderNick],
         goal: t.goal,
+        neededRoles: t.neededRoles,
         requirement: t.requirement,
-        contact: t.contact ?? null,
+        contact: t.contact,
         deadline: t.deadline,
+        targetSize: t.targetSize,
         status: t.status,
-        slots: { create: t.slots },
+        members: { create: t.members },
       },
     });
-    // TeamMember.competitionId 冗余自所属 Team（数据库层“同竞赛一人一队”约束需要）。
-    // 平台注册成员 userId 非空，平台外成员 userId 为 null。
-    await prisma.teamMember.createMany({
-      data: t.members.map((m) =>
-        'userId' in m
-          ? { teamId: team.id, competitionId, userId: users[m.userId], note: m.note }
-          : {
-              teamId: team.id,
-              competitionId,
-              displayName: m.displayName,
-              role: m.role,
-              rank: m.rank,
-              grade: m.grade,
-              college: m.college,
-            },
-      ),
-    });
+    teamIds[t.leaderNick] = team.id;
   }
 
   console.log('写入留言与关注…');
@@ -633,11 +626,57 @@ async function main() {
         targetId: compIds['全国大学生数学建模竞赛'],
         content: '想找队友的可以直接去组队区看看，A 题一般偏物理，B 题偏离散优化。',
       },
+      // 招募帖下的评论区（广告牌模式：感兴趣直接留言 + 加联系方式）
+      {
+        authorId: users['李建模'],
+        targetType: 'TEAM',
+        targetId: teamIds['陈软硬件都会'],
+        content: '我对论文方向很感兴趣，之前拿过校模赛一等奖，可以投简历看看吗？',
+        likes: 2,
+      },
+      {
+        authorId: users['王前端'],
+        targetType: 'TEAM',
+        targetId: teamIds['陈软硬件都会'],
+        content: '帮顶！这个队靠谱。',
+        likes: 1,
+      },
     ],
   });
+  const elecTeamComment = await prisma.comment.findFirst({
+    where: { targetType: 'TEAM', targetId: teamIds['陈软硬件都会'], authorId: users['李建模'] },
+  });
+  if (elecTeamComment) {
+    await prisma.commentLike.createMany({
+      data: [
+        { userId: users['张算法'], commentId: elecTeamComment.id },
+        { userId: users['雷达站长'], commentId: elecTeamComment.id },
+      ],
+    });
+  }
   await prisma.favorite.create({
     data: { userId: users['雷达站长'], targetType: 'COMPETITION', targetId: elecId },
   });
+
+  // 系统公告 + 全员系统通知（消息中心可见，横幅只在首页弹一次）
+  if ((await prisma.announcement.count()) === 0) {
+    const admin = await prisma.user.findFirst({ where: { role: 'ADMIN' } });
+    const ann = await prisma.announcement.create({
+      data: {
+        title: '欢迎来到 UESTC TeamUp',
+        content: '校内竞赛信息与组队平台试运行中，遇到问题请通过留言或举报反馈。',
+        createdBy: admin!.id,
+      },
+    });
+    const allUsers = await prisma.user.findMany({ select: { id: true } });
+    await prisma.notification.createMany({
+      data: allUsers.map((u) => ({
+        userId: u.id,
+        kind: 'SYSTEM_NOTIFICATION' as const,
+        payload: { announcementId: ann.id, title: ann.title, content: ann.content },
+      })),
+    });
+  }
 
   const counts = {
     competitions: await prisma.competition.count(),

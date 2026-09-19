@@ -108,7 +108,6 @@ async function doLogout() {
               <el-dropdown-menu>
                 <el-dropdown-item command="/me/profile">个人中心</el-dropdown-item>
                 <el-dropdown-item command="/me/teams">我的队伍</el-dropdown-item>
-                <el-dropdown-item command="/me/applications">我的申请</el-dropdown-item>
                 <el-dropdown-item command="/me/favorites">我的关注</el-dropdown-item>
                 <el-dropdown-item v-if="auth.isAdmin" command="/admin/competitions" divided>管理后台</el-dropdown-item>
                 <el-dropdown-item command="logout" divided>退出登录</el-dropdown-item>

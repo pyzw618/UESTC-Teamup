@@ -14,7 +14,7 @@ const auth = useAuthStore();
 
 const home = ref<{
   deadlines: { competitionId: string; competitionName: string; stage: string; endAt: string; daysLeft: number }[];
-  hotTeams: (TeamListItem & { slots: { role: string; status: string }[] })[];
+  hotTeams: (TeamListItem & { neededRoles?: string[] })[];
   bonusCompetitions: CompetitionListItem[];
   levelCounts: Record<string, number>;
   recommend: { id: string; name: string; levels: string[]; tags: string[]; reason: string }[];
@@ -32,12 +32,6 @@ onMounted(async () => {
       api.get<TimelineNode[]>(`/calendar?start=${monthStart}&end=${monthEnd}`),
     ]);
     home.value = h;
-    if (home.value) {
-      home.value.hotTeams = home.value.hotTeams.map((t) => ({
-        ...t,
-        openRoles: (t.slots ?? []).filter((s) => s.status === 'OPEN').map((s) => s.role),
-      }));
-    }
     miniMonth.value = (month || []).filter((t) => {
       const s = t.startAt ? new Date(t.startAt) : null;
       const e = t.endAt ? new Date(t.endAt) : null;
@@ -189,8 +183,7 @@ const levelEntries = [
                   :goal="t.goal"
                   :status="t.status"
                   :deadline="t.deadline"
-                  :open-roles="t.openRoles"
-                  :member-count="t.memberCount"
+                  :needed-roles="t.neededRoles"
                   :competition="t.competition"
                   :team-id="t.id"
                 />

@@ -134,12 +134,18 @@ export class CompetitionsService {
     });
     if (!row || row.status === 'ARCHIVED') throw new NotFoundException('竞赛不存在或已下线');
 
-    // “正在招募”只统计 RECRUITING（PAUSED 已暂停接收新候选人）
+    // “正在招募”只统计 RECRUITING
     const recruitingTeams = await this.prisma.team.findMany({
       where: { competitionId: id, status: 'RECRUITING' },
       orderBy: { createdAt: 'desc' },
       take: 20,
-      include: {
+      select: {
+        id: true,
+        goal: true,
+        status: true,
+        deadline: true,
+        neededRoles: true,
+        targetSize: true,
         leader: {
           select: {
             id: true,
@@ -149,12 +155,9 @@ export class CompetitionsService {
             major: true,
             bio: true,
             studentNo: true,
-            memberships: { where: { active: true }, select: { teamId: true } },
           },
         },
-        slots: { select: { id: true, role: true, status: true, note: true } },
-        members: { where: { active: true }, select: { id: true, userId: true } },
-        _count: { select: { applications: { where: { status: 'PENDING' } } } },
+        _count: { select: { members: true } },
       },
     });
 
@@ -183,15 +186,20 @@ export class CompetitionsService {
           },
         },
       }),
-      // 热招队伍
+      // 热招帖子
       this.prisma.team.findMany({
         where: { status: 'RECRUITING', competition: { status: 'PUBLISHED' } },
         orderBy: { createdAt: 'desc' },
         take: 6,
-        include: {
+        select: {
+          id: true,
+          goal: true,
+          status: true,
+          deadline: true,
+          neededRoles: true,
+          createdAt: true,
           competition: { select: { id: true, name: true } },
           leader: { select: { id: true, nickname: true, college: true, grade: true } },
-          slots: true,
         },
       }),
       // 只看能加分的比赛（核心入口）

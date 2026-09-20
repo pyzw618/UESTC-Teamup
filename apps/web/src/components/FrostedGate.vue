@@ -66,7 +66,7 @@ function goLogin() {
   align-items: center;
   justify-content: center;
   color: #fff;
-  background: linear-gradient(135deg, #0f4c8c, #1f63a0);
+  background: linear-gradient(135deg, #0c3d70, #0f4c8c 55%, #1f63a0);
   box-shadow: 0 6px 18px rgba(15, 76, 140, 0.3);
 }
 </style>

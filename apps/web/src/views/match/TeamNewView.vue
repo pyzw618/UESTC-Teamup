@@ -17,7 +17,8 @@ const form = ref({
   goal: undefined as TeamGoal | undefined,
   neededRoles: [] as RoleType[],
   requirement: '',
-  contact: '',
+  qq: '',
+  wechat: '',
   deadline: null as string | null,
   targetSize: null as number | null,
   members: [] as { grade: number | null; college: string; major: string; rank: string; intro: string }[],
@@ -85,8 +86,8 @@ async function submit() {
     ElMessage.warning('请选择队伍目标');
     return;
   }
-  if (!form.value.contact.trim()) {
-    ElMessage.warning('请填写联系方式（微信/QQ），感兴趣的同学要直接联系你');
+  if (!form.value.qq.trim() && !form.value.wechat.trim()) {
+    ElMessage.warning('QQ 与微信至少填写一项，感兴趣的同学要直接联系你');
     return;
   }
 
@@ -98,7 +99,8 @@ async function submit() {
       goal: form.value.goal,
       neededRoles: form.value.neededRoles,
       requirement: form.value.requirement || undefined,
-      contact: form.value.contact.trim(),
+      qq: form.value.qq.trim() || undefined,
+      wechat: form.value.wechat.trim() || undefined,
       deadline: form.value.deadline || undefined,
       targetSize: form.value.targetSize ?? undefined,
       members: form.value.members.map((m) => ({
@@ -144,13 +146,13 @@ void auth;
             >
               <el-option v-for="c in competitionOptions" :key="c.id" :value="c.id" :label="c.name" />
             </el-select>
-            <el-button size="large" @click="switchToManual">手动填写</el-button>
+            <el-button size="large" round @click="switchToManual">手动填写</el-button>
           </div>
         </template>
         <template v-else>
           <div class="flex gap-8px">
             <el-input v-model="form.competitionName" size="large" maxlength="120" placeholder="手动填写竞赛名称" />
-            <el-button size="large" @click="switchToSelect">改用选择菜单</el-button>
+            <el-button size="large" round @click="switchToSelect">改用选择菜单</el-button>
           </div>
         </template>
       </div>
@@ -232,8 +234,10 @@ void auth;
       <!-- 6. 联系方式 / 招募截止 -->
       <div class="grid grid-cols-1 md:grid-cols-2 gap-16px">
         <div>
-          <div class="form-label">联系方式 <span class="req">*</span></div>
-          <el-input v-model="form.contact" size="large" maxlength="200" placeholder="微信 / QQ 号，将直接公开展示" />
+          <div class="form-label">QQ <span class="req">*</span><span class="text-12px color-ink-faint font-normal ml-6px">QQ / 微信至少填一项</span></div>
+          <el-input v-model="form.qq" size="large" maxlength="64" placeholder="QQ 号，将直接公开展示" />
+          <div class="form-label mt-12px">微信</div>
+          <el-input v-model="form.wechat" size="large" maxlength="64" placeholder="微信号，将直接公开展示" />
           <p class="text-12px color-ink-faint m-0 mt-6px">平台不提供私聊与申请审批，同学看到帖子后会直接加你</p>
         </div>
         <div>

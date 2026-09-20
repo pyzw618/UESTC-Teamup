@@ -64,10 +64,10 @@ async function remove(row: (typeof items.value)[number]) {
         <el-input
           v-model="form.content"
           type="textarea"
-          :rows="3"
+          :rows="6"
           maxlength="2000"
           show-word-limit
-          placeholder="公告内容，将展示在全站顶部横幅"
+          placeholder="公告内容，支持 Markdown（标题、列表、链接、加粗等），将在全站公告弹窗中渲染展示"
         />
         <div class="flex items-center gap-10px">
           <el-button type="primary" round :loading="submitting" @click="publish">发布公告</el-button>
@@ -88,8 +88,8 @@ async function remove(row: (typeof items.value)[number]) {
           </div>
           <p class="text-13px color-ink-soft m-0 whitespace-pre-wrap">{{ a.content }}</p>
           <div class="flex gap-8px mt-8px">
-            <el-button size="small" round @click="toggle(a)">{{ a.active ? '下线' : '重新发布' }}</el-button>
-            <el-button size="small" text type="danger" @click="remove(a)">删除</el-button>
+            <el-button size="small" round :type="a.active ? 'danger' : 'primary'" :plain="a.active" @click="toggle(a)">{{ a.active ? '下线' : '重新发布' }}</el-button>
+            <el-button size="small" link type="danger" @click="remove(a)">删除</el-button>
           </div>
         </div>
         <el-empty v-if="!loading && !items.length" description="还没有发布过公告" :image-size="56" />

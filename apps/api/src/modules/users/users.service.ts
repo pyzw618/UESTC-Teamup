@@ -105,6 +105,7 @@ export class UsersService {
       major: user.major,
       bio: user.bio,
       studentNo: user.studentNo,
+      contact: user.contact,
       skills: user.skills,
       teamIds: [],
     });

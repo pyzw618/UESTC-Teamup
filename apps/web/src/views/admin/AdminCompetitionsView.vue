@@ -80,8 +80,8 @@ const statusLabel = (s: string) => PublishStatusLabel[s as PublishStatus] ?? s;
       </el-table-column>
       <el-table-column label="操作" width="140" fixed="right">
         <template #default="{ row }">
-          <el-button size="small" text type="primary" @click="router.push(`/admin/competitions/${row.id}/edit`)">编辑</el-button>
-          <el-button size="small" text type="danger" @click="archive(row.id)">下线</el-button>
+          <el-button size="small" link type="primary" @click="router.push(`/admin/competitions/${row.id}/edit`)">编辑</el-button>
+          <el-button size="small" link type="danger" @click="archive(row.id)">下线</el-button>
         </template>
       </el-table-column>
     </el-table>

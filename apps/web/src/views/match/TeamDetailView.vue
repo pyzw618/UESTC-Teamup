@@ -7,6 +7,7 @@ import { api } from '../../api/client';
 import { fmtDate, daysLeft, type TeamDetail } from '../../api/types';
 import FrostedGate from '../../components/FrostedGate.vue';
 import CommentList from '../../components/CommentList.vue';
+import UserAvatar from '../../components/UserAvatar.vue';
 import { useAuthStore } from '../../stores/auth';
 
 const route = useRoute();
@@ -97,7 +98,8 @@ const editForm = ref({
   goal: undefined as TeamGoal | undefined,
   neededRoles: [] as RoleType[],
   requirement: '',
-  contact: '',
+  qq: '',
+  wechat: '',
   deadline: null as string | null,
   targetSize: null as number | null,
   members: [] as EditMember[],
@@ -114,7 +116,8 @@ function openEdit() {
     goal: t.goal as TeamGoal,
     neededRoles: (t.neededRoles ?? []) as RoleType[],
     requirement: t.requirement ?? '',
-    contact: t.contact ?? '',
+    qq: t.qq ?? '',
+    wechat: t.wechat ?? '',
     deadline: t.deadline ? t.deadline.slice(0, 10) : null,
     targetSize: t.targetSize,
     members: (t.members ?? []).map((m) => ({
@@ -129,8 +132,8 @@ function openEdit() {
 }
 
 async function submitEdit() {
-  if (!editForm.value.contact.trim()) {
-    ElMessage.warning('联系方式不能为空');
+  if (!editForm.value.qq.trim() && !editForm.value.wechat.trim()) {
+    ElMessage.warning('QQ 与微信至少填写一项');
     return;
   }
   editSaving.value = true;
@@ -139,7 +142,8 @@ async function submitEdit() {
       goal: editForm.value.goal,
       neededRoles: editForm.value.neededRoles,
       requirement: editForm.value.requirement,
-      contact: editForm.value.contact.trim(),
+      qq: editForm.value.qq.trim() || undefined,
+      wechat: editForm.value.wechat.trim() || undefined,
       deadline: editForm.value.deadline || undefined,
       targetSize: editForm.value.targetSize ?? undefined,
       members: editForm.value.members.map((m) => ({
@@ -160,14 +164,6 @@ async function submitEdit() {
   }
 }
 
-async function copyContact() {
-  try {
-    await navigator.clipboard.writeText(team.value!.contact);
-    ElMessage.success('已复制，快去加队长吧');
-  } catch {
-    ElMessage.warning('复制失败，请手动选择复制');
-  }
-}
 </script>
 
 <template>
@@ -211,6 +207,10 @@ async function copyContact() {
               class="text-18px font-bold color-uestc-600 cursor-pointer hover:underline"
               @click="router.push(`/competitions/${team.competition.id}`)"
             >{{ team.competition.name }}</div>
+            <router-link :to="`/u/${team.leader.id}`" class="leader-line">
+              <UserAvatar :name="team.leader.nickname || team.leader.college || 'U'" :size="26" />
+              <span class="text-13px color-ink-soft">发布者 <b class="color-ink">{{ team.leader.nickname || '同学' }}</b></span>
+            </router-link>
             <div class="text-12px color-ink-faint mt-2px">
               发布于 {{ fmtDate(team.createdAt) }} · 已有 {{ team.memberCount }}<template v-if="team.targetSize"> / 计划 {{ team.targetSize }}</template> 人 · 💬 {{ team.commentCount }} 条留言
             </div>
@@ -245,11 +245,16 @@ async function copyContact() {
 
         <section class="glass p-20px contact-card">
           <h2 class="text-15px font-bold m-0 mb-10px">📞 联系队长</h2>
-          <p class="text-16px font-bold color-ink m-0 break-all">{{ team.contact }}</p>
-          <div class="flex gap-8px mt-14px">
-            <el-button type="primary" round size="small" @click="copyContact">一键复制</el-button>
+          <div class="contact-list">
+            <div v-if="team.qq" class="contact-row">
+              <span class="k">QQ</span>
+              <span class="v">{{ team.qq }}</span>
+            </div>
+            <div v-if="team.wechat" class="contact-row">
+              <span class="k">微信</span>
+              <span class="v">{{ team.wechat }}</span>
+            </div>
           </div>
-          <p class="text-12px color-ink-faint mt-12px m-b-0">平台不做站内私聊 —— 直接加队长微信/QQ，报上来自哪里即可</p>
         </section>
       </div>
 
@@ -305,8 +310,10 @@ async function copyContact() {
         </div>
         <div class="grid grid-cols-1 md:grid-cols-2 gap-12px">
           <div>
-            <div class="text-13px font-semibold mb-6px">联系方式（公开）</div>
-            <el-input v-model="editForm.contact" maxlength="200" />
+            <div class="text-13px font-semibold mb-6px">QQ <span class="text-12px color-ink-faint font-normal">（QQ / 微信至少填一项）</span></div>
+            <el-input v-model="editForm.qq" maxlength="64" placeholder="QQ 号，公开展示" />
+            <div class="text-13px font-semibold mt-10px mb-6px">微信</div>
+            <el-input v-model="editForm.wechat" maxlength="64" placeholder="微信号，公开展示" />
           </div>
           <div>
             <div class="text-13px font-semibold mb-6px">招募截止</div>
@@ -401,8 +408,51 @@ async function copyContact() {
   font-weight: 500;
 }
 
+/* 发布人行：头像 + 昵称，点击进入个人主页 */
+.leader-line {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  margin-top: 8px;
+  text-decoration: none;
+  border-radius: 999px;
+  padding: 2px 10px 2px 2px;
+  transition: background 0.15s ease-out;
+}
+.leader-line:hover {
+  background: rgba(15, 76, 140, 0.06);
+}
+
 .contact-card {
   background:
     linear-gradient(135deg, rgba(64, 153, 117, 0.06), rgba(255, 255, 255, 0.6) 55%);
+}
+/* 联系方式列表：标签列固定宽、数值列对齐，行间虚线分隔 */
+.contact-list {
+  display: flex;
+  flex-direction: column;
+}
+.contact-row {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  padding: 10px 2px;
+}
+.contact-row + .contact-row {
+  border-top: 1px dashed rgba(15, 76, 140, 0.14);
+}
+.contact-row .k {
+  flex-shrink: 0;
+  width: 52px;
+  font-size: 13px;
+  color: var(--ink-faint);
+}
+.contact-row .v {
+  flex: 1;
+  min-width: 0;
+  font-size: 15px;
+  font-weight: 700;
+  color: var(--ink);
+  word-break: break-all;
 }
 </style>

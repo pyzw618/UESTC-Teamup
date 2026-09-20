@@ -317,41 +317,78 @@ body {
 }
 
 /* ---------- Element Plus 控件（学习参考站按钮/选项设计） ---------- */
-/* 按钮：白底 + 1px 浅灰描边 + hover 变浅灰 + 按下下沉 1px（active:translate-y-px） */
+/* 默认按钮：背景板工艺 = 竞赛雷达页卡片/表格切换器的玻璃底板（白→浅蓝渐变 + 浅描边 + 软阴影），
+   hover 提亮为纯白 + 蓝描边，按下下沉 1px。主操作才用 type="primary" 深蓝渐变。 */
 .el-button {
   border-radius: 10px;
   font-weight: 500;
-  border-color: #e3e8ee;
+  border-color: rgba(232, 232, 232, 0.9);
   background-color: #fff;
+  background-image: linear-gradient(135deg, rgba(255, 255, 255, 0.92), rgba(239, 247, 255, 0.72));
   color: var(--ink);
   transition: all 0.15s ease-out;
-  box-shadow: none;
+  box-shadow:
+    0 4px 14px rgba(15, 76, 140, 0.08),
+    inset 0 1px 0 rgba(255, 255, 255, 1);
 }
 .el-button:hover,
 .el-button:focus-visible {
-  background-color: #f3f7fc;
-  border-color: #d9e2ec;
+  background-color: #fff;
+  background-image: linear-gradient(135deg, #fff, #f2f8ff);
+  border-color: rgba(15, 76, 140, 0.35);
   color: var(--ink);
 }
 .el-button:active {
   transform: translateY(1px);
 }
+/* 渐变背景板只属于默认按钮：plain / text / link / 禁用 / 非主色实心类型一律还原 */
+.el-button.is-plain,
+.el-button.is-text,
+.el-button.is-link,
+.el-button.is-disabled,
+.el-button--danger,
+.el-button--success,
+.el-button--info {
+  background-image: none;
+}
+.el-button.is-plain,
+.el-button.is-text,
+.el-button.is-link,
+.el-button.is-disabled {
+  box-shadow: none;
+}
+/* 主按钮：深蓝渐变 + 蓝光晕（工艺同竞赛雷达页视图切换器的选中态） */
 .el-button--primary {
-  background-color: var(--uestc-blue);
-  border-color: var(--uestc-blue);
+  background: linear-gradient(135deg, #0c3d70, #0f4c8c 55%, #1f63a0);
+  border-color: #0f4c8c;
   color: #fff;
+  box-shadow:
+    0 4px 12px rgba(15, 76, 140, 0.32),
+    inset 0 1px 0 rgba(255, 255, 255, 0.3);
 }
 .el-button--primary:hover,
 .el-button--primary:focus-visible {
-  background-color: #1a5da8;
+  background: linear-gradient(135deg, #0f4c8c, #1a5da8 55%, #2a70b0);
   border-color: #1a5da8;
   color: #fff;
+  box-shadow:
+    0 6px 16px rgba(15, 76, 140, 0.4),
+    inset 0 1px 0 rgba(255, 255, 255, 0.3);
+  transform: translateY(-1px);
+}
+.el-button--primary:active {
+  transform: translateY(1px);
+  box-shadow:
+    0 2px 8px rgba(15, 76, 140, 0.3),
+    inset 0 1px 0 rgba(255, 255, 255, 0.3);
 }
 .el-button--primary.is-plain,
 .el-button--primary.is-text,
 .el-button--primary.is-link {
   background-color: transparent;
+  background-image: none;
   border-color: transparent;
+  box-shadow: none;
   color: var(--uestc-blue);
 }
 .el-button--primary.is-plain:hover {
@@ -391,14 +428,107 @@ body {
   box-shadow: 0 0 0 1px var(--uestc-blue) inset;
 }
 
-/* 单选按钮组（选项）：分段控件，选中 = 浅蓝底 + 主色字（参考站 is-active 态） */
+/* ---------- 全局分段切换控件（基准样式提取自竞赛雷达页「卡片/表格」切换器） ----------
+   用法：<div class="seg-switch"><button class="seg-switch-item active">…</button>…</div> */
+.seg-switch {
+  position: relative;
+  display: inline-flex;
+  padding: 4px;
+  gap: 4px;
+  border-radius: 999px;
+  background: linear-gradient(135deg, rgba(255, 255, 255, 0.92), rgba(239, 247, 255, 0.72));
+  border: 1px solid rgba(232, 232, 232, 0.9);
+  box-shadow:
+    0 4px 14px rgba(15, 76, 140, 0.08),
+    inset 0 1px 0 rgba(255, 255, 255, 1);
+}
+/* 滑块：绝对定位在激活项下方，由 useSlideThumb 驱动位移实现切换动画 */
+.seg-switch-thumb {
+  position: absolute;
+  top: 4px;
+  bottom: 4px;
+  left: 0;
+  z-index: 0;
+  border-radius: 999px;
+  background: linear-gradient(135deg, #0c3d70, #0f4c8c 55%, #1f63a0);
+  box-shadow:
+    0 4px 12px rgba(15, 76, 140, 0.32),
+    inset 0 1px 0 rgba(255, 255, 255, 0.3);
+  transition:
+    transform 0.32s var(--ease-out),
+    width 0.32s var(--ease-out),
+    opacity 0.2s ease-out;
+  pointer-events: none;
+}
+.seg-switch-item {
+  position: relative;
+  z-index: 1;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 7px 18px;
+  border-radius: 999px;
+  border: none;
+  background: transparent;
+  color: var(--ink-soft);
+  font-size: 13px;
+  font-weight: 500;
+  font-family: inherit;
+  cursor: pointer;
+  transition: color 0.18s ease-out;
+}
+.seg-switch-item svg {
+  width: 15px;
+  height: 15px;
+}
+.seg-switch-item:hover {
+  color: var(--uestc-blue);
+}
+.seg-switch-item.active {
+  color: #fff;
+  font-weight: 600;
+}
+@media (prefers-reduced-motion: reduce) {
+  .seg-switch-thumb {
+    transition: none;
+  }
+}
+/* 与分段控件底板配套的单按钮（如雷达页「竞赛日历」）：同高同圆角同字号 */
+.el-button.seg-plate {
+  height: 42px;
+  padding: 0 20px;
+  font-size: 13px;
+  border-radius: 999px;
+}
+
+/* 单选/多选按钮组：同一套分段控件工艺（玻璃壳胶囊 + 选中 = 深蓝渐变浮起段） */
+.el-radio-group:has(> .el-radio-button),
+.el-checkbox-group:has(> .el-checkbox-button) {
+  display: inline-flex;
+  align-items: center;
+  padding: 4px;
+  gap: 4px;
+  border-radius: 999px;
+  background: linear-gradient(135deg, rgba(255, 255, 255, 0.92), rgba(239, 247, 255, 0.72));
+  border: 1px solid rgba(232, 232, 232, 0.9);
+  box-shadow:
+    0 4px 14px rgba(15, 76, 140, 0.08),
+    inset 0 1px 0 rgba(255, 255, 255, 1);
+}
+.el-radio-button,
+.el-checkbox-button {
+  /* 段与段之间不再用相邻边框连线 */
+  line-height: initial;
+}
 .el-radio-button__inner,
 .el-checkbox-button__inner {
-  border-color: #e3e8ee !important;
-  background: #fff;
+  border: none !important;
+  border-radius: 999px !important;
+  background: transparent;
   color: var(--ink-soft);
+  font-weight: 500;
   box-shadow: none !important;
-  transition: all 0.15s ease-out;
+  transition: all 0.18s ease-out;
 }
 .el-radio-button__inner:hover,
 .el-checkbox-button__inner:hover {
@@ -406,10 +536,12 @@ body {
 }
 .el-radio-button__original-radio:checked + .el-radio-button__inner,
 .el-checkbox-button__original-checkbox:checked + .el-checkbox-button__inner {
-  background: #eef5fc;
-  color: var(--uestc-blue);
+  background: linear-gradient(135deg, #0c3d70, #0f4c8c 55%, #1f63a0);
+  color: #fff;
   font-weight: 600;
-  border-color: #d9e2ec !important;
+  box-shadow:
+    0 4px 12px rgba(15, 76, 140, 0.32),
+    inset 0 1px 0 rgba(255, 255, 255, 0.3);
 }
 
 .el-tag {

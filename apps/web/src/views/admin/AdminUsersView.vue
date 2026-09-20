@@ -106,7 +106,7 @@ const roleLabel = (r: string) => (r === 'ADMIN' ? '管理员' : r === 'CONTRIBUT
       </el-table-column>
       <el-table-column label="操作" width="100" fixed="right">
         <template #default="{ row }">
-          <el-button size="small" text :type="row.banned ? 'success' : 'danger'" @click="toggleBan(row)">
+          <el-button size="small" link :type="row.banned ? 'success' : 'danger'" @click="toggleBan(row)">
             {{ row.banned ? '解封' : '封禁' }}
           </el-button>
         </template>

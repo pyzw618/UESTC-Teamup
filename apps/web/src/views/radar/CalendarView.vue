@@ -110,7 +110,7 @@ function goIcs() {
           🚩 报名期（浅色） · 🏁 赛程期（实色） —— 学生 90% 在手机上，订阅比站内提醒有用 10 倍
         </p>
       </div>
-      <el-button type="primary" round @click="goIcs">📅 订阅 .ics 到手机日历</el-button>
+      <el-button round @click="goIcs">📅 订阅 .ics 到手机日历</el-button>
     </div>
 
     <div class="grid grid-cols-1 lg:grid-cols-[1fr_300px] gap-16px items-start">
@@ -174,22 +174,34 @@ function goIcs() {
   font-weight: 700;
   color: var(--ink);
 }
+/* 按钮工艺对齐全站基准：默认 = 卡片/表格切换器同款玻璃背景板，激活/悬停 = 深蓝渐变 + 蓝光晕 */
 .fc .fc-button {
-  background: rgba(255, 255, 255, 0.7);
-  border: 1px solid rgba(15, 76, 140, 0.15);
-  color: var(--ink-soft);
+  background-color: #fff;
+  background-image: linear-gradient(135deg, rgba(255, 255, 255, 0.92), rgba(239, 247, 255, 0.72));
+  border: 1px solid rgba(232, 232, 232, 0.9);
+  color: var(--ink);
   border-radius: 10px;
+  font-size: 13px;
   font-weight: 500;
+  box-shadow:
+    0 4px 14px rgba(15, 76, 140, 0.08),
+    inset 0 1px 0 rgba(255, 255, 255, 1);
+  transition: all 0.15s ease-out;
 }
 .fc .fc-button:hover {
-  background: #fff;
+  background-color: #fff;
+  background-image: linear-gradient(135deg, #fff, #f2f8ff);
   color: var(--uestc-blue);
+  border-color: rgba(15, 76, 140, 0.35);
 }
 .fc .fc-button-primary:not(:disabled).fc-button-active,
 .fc .fc-button-primary:not(:disabled):active {
-  background: var(--uestc-blue);
-  border-color: var(--uestc-blue);
+  background: linear-gradient(135deg, #0c3d70, #0f4c8c 55%, #1f63a0);
+  border-color: #0f4c8c;
   color: #fff;
+  box-shadow:
+    0 4px 12px rgba(15, 76, 140, 0.32),
+    inset 0 1px 0 rgba(255, 255, 255, 0.3);
 }
 .fc .fc-event {
   border-radius: 6px;

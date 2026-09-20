@@ -25,7 +25,8 @@ class UpsertTeamDto {
   @IsEnum(TeamGoal) goal!: TeamGoal;
   @IsOptional() @IsArray() @IsEnum(RoleType, { each: true }) neededRoles?: RoleType[];
   @IsOptional() @IsString() @Length(0, 2000) requirement?: string;
-  @IsString() @Length(1, 200, { message: '请填写联系方式（微信/QQ）' }) contact!: string;
+  @IsOptional() @IsString() @Length(0, 64, { message: 'QQ 号最长 64 字' }) qq?: string;
+  @IsOptional() @IsString() @Length(0, 64, { message: '微信号最长 64 字' }) wechat?: string;
   @IsOptional() @IsDateString() deadline?: string;
   @IsOptional() @IsInt() @Min(1) @Max(99) targetSize?: number;
   @IsOptional() @IsArray() @ValidateNested({ each: true }) @Type(() => MemberDto) members?: MemberDto[];
@@ -45,6 +46,8 @@ class ListTeamsDto {
   @IsOptional() @IsEnum(TeamGoal) goal?: TeamGoal;
   @IsOptional() @TransformStringArray() statuses?: TeamStatus[];
   @IsOptional() @IsIn(['DEADLINE', 'LATEST']) sort?: 'DEADLINE' | 'LATEST';
+  @IsOptional() @IsDateString() postedFrom?: string;
+  @IsOptional() @IsDateString() postedTo?: string;
   @IsOptional() @IsInt() @Min(1) page: number = 1;
   @IsOptional() @IsInt() @Min(1) @Max(60) pageSize: number = 12;
 }
@@ -101,7 +104,8 @@ export class TeamsController {
       goal: dto.goal,
       neededRoles: dto.neededRoles,
       requirement: dto.requirement,
-      contact: dto.contact,
+      qq: dto.qq,
+      wechat: dto.wechat,
       deadline: dto.deadline ? new Date(dto.deadline) : undefined,
       targetSize: dto.targetSize,
       members: dto.members,

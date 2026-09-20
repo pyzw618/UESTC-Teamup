@@ -82,9 +82,9 @@ async function handle(row: (typeof items.value)[number], action: 'dismiss' | 'de
         </div>
         <p class="text-13px color-ink-soft m-0">举报原因：{{ r.reason }}</p>
         <div v-if="!r.handled" class="flex gap-8px mt-10px">
-          <el-button size="small" type="danger" round @click="handle(r, 'delete-content')">删除内容</el-button>
+          <el-button size="small" type="danger" plain round @click="handle(r, 'delete-content')">删除内容</el-button>
           <el-button size="small" round @click="handle(r, 'dismiss')">驳回举报</el-button>
-          <el-button v-if="r.targetType === 'TEAM' && r.team" size="small" text type="primary" @click="router.push(`/teams/${r.team.id}`)">
+          <el-button v-if="r.targetType === 'TEAM' && r.team" size="small" link type="primary" @click="router.push(`/teams/${r.team.id}`)">
             查看队伍
           </el-button>
         </div>

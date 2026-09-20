@@ -384,7 +384,7 @@ model CorrectionReport {
 
 // ================= 队友匹配（广告牌模式） =================
 
-// Team 即「招募帖」：队长发布，感兴趣的人通过公开的 contact 直接线下联系。
+// Team 即「招募帖」：队长发布，感兴趣的人通过公开的联系方式直接线下联系。
 // 平台不做申请/审批；targetSize 与成员名单为队长手填的展示信息（成员不关联平台账号）。
 // 帖子下方评论区由 Comment(targetType=TEAM) 承载。
 model Team {
@@ -396,8 +396,9 @@ model Team {
   // 期望招募的方向标签（卡片展示 + 按方向筛选）；具体要求写在 requirement
   neededRoles RoleType[]
   requirement String?    @db.Text
-  // 联系方式（微信/QQ），广告牌模式下直接公开展示
-  contact     String
+  // 联系方式：QQ 与微信两个属性，至少填写一项（应用层校验），广告牌模式下直接公开展示
+  qq          String?
+  wechat      String?
   deadline    DateTime?
   // 计划招募人数（队长手填，展示用）
   targetSize  Int?
@@ -461,7 +462,9 @@ model Comment {
   targetType CommentTarget
   targetId   String
   content    String       @db.Text
+  // 楼中楼拍平：parentId 永远指向根评论；回复的回复用 replyToId 记录真实对象
   parentId   String?
+  replyToId  String?
   // 点赞数（冗余计数，由 CommentLike 明细维护；排序友好）
   likes      Int          @default(0)
   createdAt  DateTime     @default(now())

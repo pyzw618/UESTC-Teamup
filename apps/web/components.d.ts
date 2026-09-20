@@ -40,6 +40,7 @@ declare module 'vue' {
     ElTooltip: typeof import('element-plus/es')['ElTooltip']
     FrostedGate: typeof import('./src/components/FrostedGate.vue')['default']
     LevelChips: typeof import('./src/components/LevelChips.vue')['default']
+    MarkdownView: typeof import('./src/components/MarkdownView.vue')['default']
     RouterLink: typeof import('vue-router')['RouterLink']
     RouterView: typeof import('vue-router')['RouterView']
     TeamCardMeta: typeof import('./src/components/TeamCardMeta.vue')['default']

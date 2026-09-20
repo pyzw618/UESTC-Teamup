@@ -15,6 +15,7 @@ interface PublicCard {
   bio: string | null;
   skills: { skill: string; level: number | null }[];
   studentNo?: string;
+  contact?: string | null;
 }
 
 const route = useRoute();
@@ -42,7 +43,7 @@ onMounted(async () => {
   <div class="page-wrap max-w-680px mx-auto">
     <div v-if="loading" class="skeleton h-240px"></div>
     <template v-else-if="user">
-      <!-- 半匿名名片：学号仅同队/管理员可见 -->
+      <!-- 公开名片：站内信息全部可见 -->
       <section class="glass p-28px animate-appear">
         <div class="flex items-center gap-16px flex-wrap">
           <UserAvatar :name="user.nickname || user.college || 'U'" :size="72" />
@@ -57,7 +58,7 @@ onMounted(async () => {
               <template v-if="user.major"> · {{ user.major }}</template>
               <template v-if="!user.college && !user.grade && !user.major"> · 这位同学还没完善资料</template>
             </div>
-            <div v-if="user.studentNo" class="text-12px color-ink-faint mt-2px">你们是同队队友，可见完整信息</div>
+            <div v-if="user.contact" class="text-13px color-ink-soft mt-4px">联系方式：{{ user.contact }}</div>
           </div>
         </div>
 

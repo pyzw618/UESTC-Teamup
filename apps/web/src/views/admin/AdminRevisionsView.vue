@@ -80,7 +80,7 @@ function val(s: string | null) {
       </el-table-column>
       <el-table-column label="操作" width="100" fixed="right">
         <template #default="{ row }">
-          <el-button v-if="row.oldValue != null" size="small" text type="warning" @click="rollback(row)">回滚</el-button>
+          <el-button v-if="row.oldValue != null" size="small" link type="warning" @click="rollback(row)">回滚</el-button>
         </template>
       </el-table-column>
     </el-table>

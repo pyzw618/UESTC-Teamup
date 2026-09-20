@@ -6,6 +6,7 @@ import { AudienceLabel, CompetitionFormatLabel, Audience, CompetitionFormat, Lev
 import { api, qs } from '../../api/client';
 import { fmtDate, daysLeft, type CompetitionListItem } from '../../api/types';
 import LevelChips from '../../components/LevelChips.vue';
+import { useSlideThumb } from '../../composables/useSlideThumb';
 
 const route = useRoute();
 const router = useRouter();
@@ -25,6 +26,8 @@ const total = ref(0);
 const items = ref<CompetitionListItem[]>([]);
 const loading = ref(false);
 const view = ref<'card' | 'table'>('card');
+const viewSwitchRef = ref<HTMLElement | null>(null);
+const { thumbStyle: viewThumbStyle } = useSlideThumb(viewSwitchRef, () => view.value, '.seg-switch-item.active');
 
 const levelOptions = [
   { value: Level.INTERNATIONAL, label: LevelLabel[Level.INTERNATIONAL] },
@@ -100,15 +103,16 @@ const activeFilterCount = computed(
         <p class="text-13px color-ink-soft m-0 mt-4px">自动监听竞赛信息源，不错过任何 DDL</p>
       </div>
       <div class="flex items-center gap-8px">
-        <el-button round @click="router.push({ name: 'calendar' })">
+        <el-button round class="seg-plate" @click="router.push({ name: 'calendar' })">
           📅 竞赛日历
         </el-button>
-        <div class="view-switch" role="tablist" aria-label="视图切换">
-          <button class="view-switch-item" :class="{ active: view === 'card' }" @click="view = 'card'">
+        <div ref="viewSwitchRef" class="seg-switch" role="tablist" aria-label="视图切换">
+          <span class="seg-switch-thumb" aria-hidden="true" :style="viewThumbStyle"></span>
+          <button class="seg-switch-item" :class="{ active: view === 'card' }" @click="view = 'card'">
             <svg viewBox="0 0 24 24" fill="none" aria-hidden="true"><rect x="3.5" y="3.5" width="7" height="7" rx="1.8" stroke="currentColor" stroke-width="1.7"/><rect x="13.5" y="3.5" width="7" height="7" rx="1.8" stroke="currentColor" stroke-width="1.7"/><rect x="3.5" y="13.5" width="7" height="7" rx="1.8" stroke="currentColor" stroke-width="1.7"/><rect x="13.5" y="13.5" width="7" height="7" rx="1.8" stroke="currentColor" stroke-width="1.7"/></svg>
             卡片
           </button>
-          <button class="view-switch-item" :class="{ active: view === 'table' }" @click="view = 'table'">
+          <button class="seg-switch-item" :class="{ active: view === 'table' }" @click="view = 'table'">
             <svg viewBox="0 0 24 24" fill="none" aria-hidden="true"><path d="M4 6h16M4 12h16M4 18h16" stroke="currentColor" stroke-width="1.7" stroke-linecap="round"/></svg>
             表格
           </button>
@@ -201,9 +205,6 @@ const activeFilterCount = computed(
               >{{ statusText[c.status] }}</span>
             </div>
             <LevelChips :levels="c.levels" />
-            <div class="flex gap-6px flex-wrap">
-              <el-tag v-for="t in c.tags.slice(0, 3)" :key="t" size="small" effect="plain" round>{{ t }}</el-tag>
-            </div>
             <div class="flex items-center justify-between mt-auto pt-6px">
               <span class="text-12px" :style="{ color: c.nextDeadline ? '#8a5800' : 'var(--ink-faint)' }">
                 ⏳ {{ deadlineText(c) }}
@@ -268,46 +269,5 @@ const activeFilterCount = computed(
   aside {
     position: static !important;
   }
-}
-/* ---------- 视图切换：高级分段控件（玻璃壳 + 浮起选中段，工艺同参考站） ---------- */
-.view-switch {
-  display: inline-flex;
-  padding: 4px;
-  gap: 4px;
-  border-radius: 999px;
-  background: linear-gradient(135deg, rgba(255, 255, 255, 0.92), rgba(239, 247, 255, 0.72));
-  border: 1px solid rgba(232, 232, 232, 0.9);
-  box-shadow:
-    0 4px 14px rgba(15, 76, 140, 0.08),
-    inset 0 1px 0 rgba(255, 255, 255, 1);
-}
-.view-switch-item {
-  display: inline-flex;
-  align-items: center;
-  gap: 6px;
-  padding: 7px 18px;
-  border-radius: 999px;
-  border: none;
-  background: transparent;
-  color: var(--ink-soft);
-  font-size: 13px;
-  font-weight: 500;
-  cursor: pointer;
-  transition: all 0.18s ease-out;
-}
-.view-switch-item svg {
-  width: 15px;
-  height: 15px;
-}
-.view-switch-item:hover {
-  color: var(--uestc-blue);
-}
-.view-switch-item.active {
-  background: linear-gradient(135deg, #0c3d70, #0f4c8c 55%, #1f63a0);
-  color: #fff;
-  font-weight: 600;
-  box-shadow:
-    0 4px 12px rgba(15, 76, 140, 0.32),
-    inset 0 1px 0 rgba(255, 255, 255, 0.3);
 }
 </style>

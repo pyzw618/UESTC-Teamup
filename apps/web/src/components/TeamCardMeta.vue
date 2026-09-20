@@ -122,12 +122,15 @@ async function submitReport() {
         <template v-if="leader.grade"> · {{ leader.grade }} 级</template>
         <template v-if="sizeText"> · 已有 {{ sizeText }}</template>
       </span>
-      <a
+      <el-button
         v-if="teamId && auth.isLoggedIn"
-        class="report-link ml-auto text-12px cursor-pointer shrink-0"
+        link
+        size="small"
+        type="danger"
+        class="ml-auto shrink-0"
         title="举报该招募帖"
         @click.stop="openReport"
-      >举报</a>
+      >举报</el-button>
     </div>
 
     <!-- 举报弹窗 -->
@@ -230,11 +233,4 @@ async function submitReport() {
   font-weight: 500;
 }
 
-.report-link {
-  color: var(--ink-faint);
-  transition: color 0.15s ease-out;
-}
-.report-link:hover {
-  color: #c0392b;
-}
 </style>

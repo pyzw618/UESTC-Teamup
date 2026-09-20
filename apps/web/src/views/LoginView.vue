@@ -4,12 +4,15 @@ import { useRouter, useRoute } from 'vue-router';
 import { ElMessage } from 'element-plus';
 import { api, ApiError } from '../api/client';
 import { useAuthStore } from '../stores/auth';
+import { useSlideThumb } from '../composables/useSlideThumb';
 
 const router = useRouter();
 const route = useRoute();
 const auth = useAuthStore();
 
 const mode = ref<'code' | 'password'>('code');
+const modeSwitchRef = ref<HTMLElement | null>(null);
+const { thumbStyle: modeThumbStyle } = useSlideThumb(modeSwitchRef, () => mode.value, '.seg-switch-item.active');
 
 /* ---------- 验证码登录（两步） ---------- */
 const email = ref('');
@@ -223,9 +226,10 @@ function backToEmail() {
       </div>
 
       <!-- 登录方式切换 -->
-      <div class="mode-tabs mb-18px">
-        <button class="mode-tab" :class="{ active: mode === 'code' }" @click="mode = 'code'">验证码登录</button>
-        <button class="mode-tab" :class="{ active: mode === 'password' }" @click="mode = 'password'">密码登录</button>
+      <div ref="modeSwitchRef" class="seg-switch mode-switch mb-18px">
+        <span class="seg-switch-thumb" aria-hidden="true" :style="modeThumbStyle"></span>
+        <button class="seg-switch-item flex-1 justify-center" :class="{ active: mode === 'code' }" @click="mode = 'code'">验证码登录</button>
+        <button class="seg-switch-item flex-1 justify-center" :class="{ active: mode === 'password' }" @click="mode = 'password'">密码登录</button>
       </div>
 
       <!-- 验证码登录：第一步邮箱 -->
@@ -361,29 +365,10 @@ function backToEmail() {
   font-weight: 600;
 }
 
-.mode-tabs {
+/* 登录方式切换用全局 seg-switch 工艺，仅扩展为整行等宽 */
+.mode-switch {
   display: flex;
-  gap: 4px;
-  padding: 4px;
-  border-radius: 999px;
-  background: rgba(15, 76, 140, 0.06);
-}
-.mode-tab {
-  flex: 1;
-  padding: 8px 0;
-  border: none;
-  border-radius: 999px;
-  background: transparent;
   font-size: 14px;
-  color: var(--ink-soft);
-  cursor: pointer;
-  transition: all 0.18s ease-out;
-}
-.mode-tab.active {
-  background: #fff;
-  color: var(--uestc-blue);
-  font-weight: 600;
-  box-shadow: 0 2px 8px rgba(15, 76, 140, 0.12);
 }
 
 .login-watermark {

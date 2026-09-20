@@ -71,7 +71,7 @@ void unfav;
           <span class="text-13px color-ink-faint">已失效的收藏</span>
         </template>
         <span class="text-12px color-ink-faint ml-auto">{{ fmtDate(f.createdAt) }}</span>
-        <el-button size="small" text type="danger" @click="unfavByIndex(i)">取消</el-button>
+        <el-button size="small" link type="danger" @click="unfavByIndex(i)">取消</el-button>
       </div>
       <el-empty v-if="!loading && !favorites.length" description="还没有关注任何竞赛或队伍" :image-size="56" />
     </div>

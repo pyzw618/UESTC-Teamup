@@ -373,17 +373,6 @@ const levelEntries = [
   background: rgba(255, 255, 255, 0.8);
   box-shadow: 0 10px 24px rgba(15, 76, 140, 0.12);
 }
-.team-entry-btn {
-  color: var(--uestc-blue);
-  border-color: rgba(15, 76, 140, 0.35);
-  background: rgba(255, 255, 255, 0.7);
-}
-.team-entry-btn:hover {
-  color: var(--uestc-blue);
-  border-color: rgba(15, 76, 140, 0.6);
-  background: #fff;
-}
-
 /* ---------- Hero 按钮：玻璃卡片工艺的成对入口（深蓝 / 银杏黄，同尺寸同格式） ---------- */
 .hero-btn {
   min-width: 148px;

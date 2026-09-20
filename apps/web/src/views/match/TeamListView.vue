@@ -17,8 +17,7 @@ const filters = reactive({
   competitionId: (route.query.competitionId as string) || '',
   roles: (route.query.roles as string)?.split(',').filter(Boolean) || [] as string[],
   goal: (route.query.goal as string) || '',
-  includeClosed: false,
-  sort: 'LATEST',
+  postedRange: null as [string, string] | null,
 });
 const page = ref(1);
 const total = ref(0);
@@ -28,6 +27,28 @@ const loading = ref(true);
 const roleOptions = Object.values(RoleType).map((r) => ({ value: r, label: RoleTypeLabel[r] }));
 const goalOptions = Object.values(TeamGoal).map((g) => ({ value: g, label: TeamGoalLabel[g] }));
 
+/* 竞赛搜索（复用发布页逻辑：/search 远程模糊匹配） */
+const competitionOptions = ref<{ id: string; name: string }[]>([]);
+const competitionSearching = ref(false);
+
+async function searchCompetition(word: string) {
+  if (!word.trim()) return;
+  competitionSearching.value = true;
+  try {
+    const res = await api.get<{ competitions: { id: string; name: string }[] }>(`/search${qs({ q: word })}`);
+    competitionOptions.value = res.competitions;
+  } finally {
+    competitionSearching.value = false;
+  }
+}
+
+function resetFilters() {
+  filters.competitionId = '';
+  filters.roles = [];
+  filters.goal = '';
+  filters.postedRange = null;
+}
+
 async function load() {
   loading.value = true;
   try {
@@ -36,8 +57,8 @@ async function load() {
         competitionId: filters.competitionId || undefined,
         roles: filters.roles.length ? filters.roles : undefined,
         goal: filters.goal || undefined,
-        statuses: filters.includeClosed ? ['RECRUITING', 'FULL', 'COMPETING'] : undefined,
-        sort: filters.sort,
+        postedFrom: filters.postedRange?.[0] || undefined,
+        postedTo: filters.postedRange?.[1] || undefined,
         page: page.value,
         pageSize: 12,
       })}`,
@@ -54,9 +75,21 @@ watch(filters, () => {
   load();
 });
 watch(page, load);
-onMounted(() => {
-  if (auth.isLoggedIn) load();
-  else loading.value = false;
+onMounted(async () => {
+  if (!auth.isLoggedIn) {
+    loading.value = false;
+    return;
+  }
+  // 从竞赛详情页跳转而来时，回填竞赛名让搜索框显示标签
+  if (filters.competitionId) {
+    try {
+      const c = await api.get<{ id: string; name: string }>(`/competitions/${filters.competitionId}`);
+      competitionOptions.value = [{ id: c.id, name: c.name }];
+    } catch {
+      /* ignore */
+    }
+  }
+  load();
 });
 </script>
 
@@ -87,30 +120,49 @@ onMounted(() => {
     </FrostedGate>
 
     <template v-else>
-      <!-- 筛选条 -->
-      <div class="glass p-14px mb-16px flex items-center gap-12px flex-wrap">
+      <!-- 筛选条：竞赛搜索（长条）/ 目标 / 方向（短条）/ 发布日期 / 重置 -->
+      <div class="glass p-14px mb-16px flex items-center gap-10px flex-wrap">
+        <el-select
+          v-model="filters.competitionId"
+          filterable
+          remote
+          clearable
+          reserve-keyword
+          placeholder="搜索竞赛…"
+          :remote-method="searchCompetition"
+          :loading="competitionSearching"
+          class="flex-1 min-w-240px"
+          style="flex: 2 1 240px"
+        >
+          <el-option v-for="c in competitionOptions" :key="c.id" :value="c.id" :label="c.name" />
+        </el-select>
+        <el-select v-model="filters.goal" placeholder="目标" clearable style="width: 120px">
+          <el-option v-for="g in goalOptions" :key="g.value" :value="g.value" :label="g.label" />
+        </el-select>
         <el-select
           v-model="filters.roles"
           multiple
           collapse-tags
           collapse-tags-tooltip
-          placeholder="招募方向"
+          placeholder="方向"
           clearable
-          style="min-width: 190px"
+          style="width: 140px"
         >
           <el-option v-for="r in roleOptions" :key="r.value" :value="r.value" :label="r.label" />
         </el-select>
-        <el-select v-model="filters.goal" placeholder="目标" clearable style="width: 130px">
-          <el-option v-for="g in goalOptions" :key="g.value" :value="g.value" :label="g.label" />
-        </el-select>
-        <el-select v-model="filters.sort" style="width: 150px">
-          <el-option value="LATEST" label="最新发布" />
-          <el-option value="DEADLINE" label="招募截止临近" />
-        </el-select>
-        <el-checkbox v-model="filters.includeClosed">
-          <span class="text-13px">显示已满员 / 已参赛</span>
-        </el-checkbox>
-        <span class="text-12px color-ink-faint ml-auto hidden md:inline">默认只看招募中；已解散的帖子只留在作者的归档仓库</span>
+        <div class="flex items-center gap-6px">
+          <span class="text-13px color-ink-soft shrink-0">发布日期</span>
+          <el-date-picker
+            v-model="filters.postedRange"
+            type="daterange"
+            range-separator="~"
+            start-placeholder="起始"
+            end-placeholder="结束"
+            value-format="YYYY-MM-DD"
+            style="width: 220px"
+          />
+        </div>
+        <el-button round @click="resetFilters">重置筛选</el-button>
       </div>
 
       <div v-loading="loading" class="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-14px min-h-300px">

@@ -99,7 +99,9 @@ export interface TeamListItem {
 
 export interface TeamDetail extends TeamListItem {
   requirement: string | null;
-  contact: string;
+  /** 联系方式：QQ 与微信至少一项 */
+  qq: string | null;
+  wechat: string | null;
   competition: { id: string; name: string; levels: string[]; officialUrl: string | null };
   /** 已有成员情况（队长手填，纯展示） */
   members: { id: string; grade: number | null; college: string | null; major: string | null; rank: string | null; intro: string | null }[];
@@ -145,6 +147,8 @@ export interface CommentItem {
   id: string;
   content: string;
   parentId: string | null;
+  /** 楼中楼：这条回复真实回复的对象（挂在根评论下） */
+  replyTo?: { id: string; nickname: string | null } | null;
   /** 点赞数（冗余计数，由后端 CommentLike 维护） */
   likes: number;
   /** 当前登录用户是否已点赞 */

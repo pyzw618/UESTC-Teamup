@@ -136,12 +136,15 @@ async function submitCorrection() {
             </div>
             <h1 class="text-24px md:text-28px font-extrabold m-0 color-ink leading-tight">{{ comp.name }}</h1>
             <div v-if="comp.aliases?.length" class="text-13px color-ink-faint mt-4px">别名：{{ comp.aliases.join(' · ') }}</div>
+            <div v-if="comp.tags?.length" class="flex gap-6px flex-wrap mt-8px">
+              <el-tag v-for="t in comp.tags" :key="t" size="small" effect="plain" round>{{ t }}</el-tag>
+            </div>
           </div>
           <div class="flex gap-8px shrink-0">
             <el-button round @click="toggleFavorite">
               {{ favorite ? '★ 已关注' : '☆ 关注' }}
             </el-button>
-            <el-button round type="primary" plain tag="a" href="/api/calendar.ics" target="_blank">📅 订阅 .ics</el-button>
+            <el-button round tag="a" href="/api/calendar.ics" target="_blank">📅 订阅 .ics</el-button>
           </div>
         </div>
         <div class="text-12px color-ink-faint mt-12px">
@@ -200,7 +203,7 @@ async function submitCorrection() {
             </div>
             <div class="text-11px color-ink-faint mt-10px">
               分值以当年最新通知为准
-              <a class="ml-4px cursor-pointer color-uestc-500" @click="openCorrection('bonusPoints', '加分分值', comp.bonusPoints)">纠错</a>
+              <el-button link size="small" type="primary" class="ml-4px !text-11px" @click="openCorrection('bonusPoints', '加分分值', comp.bonusPoints)">纠错</el-button>
             </div>
           </template>
           <div v-else class="text-13px color-ink-soft py-8px">暂无认定信息 —— 官网通知不会写"这是国家级"，此类字段靠人工维护</div>
@@ -227,9 +230,9 @@ async function submitCorrection() {
                 <span class="text-14px font-semibold color-ink">{{ t.stage }}</span>
                 <span v-if="t.level" class="level-chip" :class="`level-${t.level}`">{{ t.level === 'INTERNATIONAL' ? '国际' : t.level === 'NATIONAL' ? '国家' : t.level === 'PROVINCIAL' ? '省' : '校' }}</span>
                 <span v-if="t.isLocked" class="text-11px color-ink-faint flex items-center gap-2px"><el-icon><i-ep-lock /></el-icon>人工锁定</span>
-                <a class="text-11px color-uestc-500 cursor-pointer" @click="openCorrection(`timeline:${t.id}:${t.endAt ? 'endAt' : 'startAt'}`, `${t.stage}时间`, t.endAt ?? t.startAt)">
+                <el-button link size="small" type="primary" class="!text-11px" @click="openCorrection(`timeline:${t.id}:${t.endAt ? 'endAt' : 'startAt'}`, `${t.stage}时间`, t.endAt ?? t.startAt)">
                   报告错误
-                </a>
+                </el-button>
               </div>
               <div class="text-12px color-ink-soft mt-2px">
                 {{ fmtDate(t.startAt, true) }} <template v-if="t.endAt">→ {{ fmtDate(t.endAt, true) }}</template>
@@ -249,15 +252,6 @@ async function submitCorrection() {
       <section class="glass p-20px">
         <div class="flex items-center justify-between mb-12px">
           <h2 class="text-15px font-bold m-0">👥 正在招募的队伍</h2>
-          <el-button
-            v-if="auth.isLoggedIn"
-            type="primary"
-            size="small"
-            round
-            @click="router.push({ name: 'team-new', query: { competitionId: comp.id } })"
-          >
-            我也要组队
-          </el-button>
         </div>
         <template v-if="auth.isLoggedIn">
           <div v-if="recruitingTeams.length" class="grid grid-cols-1 md:grid-cols-2 gap-12px">

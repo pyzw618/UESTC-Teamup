@@ -4,6 +4,7 @@ import { useRouter, useRoute } from 'vue-router';
 import { useAuthStore } from '../stores/auth';
 import UserAvatar from './UserAvatar.vue';
 import { api } from '../api/client';
+import { useSlideThumb } from '../composables/useSlideThumb';
 
 const router = useRouter();
 const route = useRoute();
@@ -21,6 +22,9 @@ const activeName = computed(() => {
   for (const n of navs) if (n.match.some((m) => route.path.startsWith(m))) return n.name;
   return route.path === '/' ? 'home' : '';
 });
+
+const navRef = ref<HTMLElement | null>(null);
+const { thumbStyle: navThumbStyle } = useSlideThumb(navRef, () => activeName.value, '.nav-item.active');
 
 async function search() {
   if (!keyword.value.trim()) return;
@@ -56,7 +60,8 @@ async function doLogout() {
       </router-link>
 
       <!-- 主导航 -->
-      <nav class="flex items-center gap-2px mx-auto">
+      <nav ref="navRef" class="nav-links flex items-center gap-2px mx-auto">
+        <span class="nav-thumb" aria-hidden="true" :style="navThumbStyle"></span>
         <router-link
           :to="{ name: 'home' }"
           class="nav-item"
@@ -124,43 +129,47 @@ async function doLogout() {
 </template>
 
 <style scoped>
+.nav-links {
+  position: relative;
+}
+/* 导航滑块：切换页面时渐变胶囊从旧项滑到新项 */
+.nav-thumb {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  left: 0;
+  z-index: 0;
+  border-radius: 999px;
+  background: linear-gradient(135deg, #0c3d70, #0f4c8c 55%, #1f63a0);
+  box-shadow: 0 3px 10px rgba(15, 76, 140, 0.3);
+  transition:
+    transform 0.32s var(--ease-out),
+    width 0.32s var(--ease-out),
+    opacity 0.2s ease-out;
+  pointer-events: none;
+}
 .nav-item {
+  position: relative;
+  z-index: 1;
   padding: 7px 16px;
   border-radius: 999px;
   font-size: 14px;
   color: var(--ink-soft);
   text-decoration: none;
-  transition: all 0.15s ease-out;
+  transition: color 0.15s ease-out;
   white-space: nowrap;
 }
 .nav-item:hover {
   color: var(--uestc-blue);
-  background: rgba(15, 76, 140, 0.06);
 }
 .nav-item.active {
   color: #fff;
-  background: linear-gradient(135deg, #0f4c8c, #1f63a0);
-  box-shadow: 0 3px 10px rgba(15, 76, 140, 0.3);
 }
-.icon-btn {
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  width: 34px;
-  height: 34px;
-  border-radius: 999px;
-  border: 1px solid rgba(15, 76, 140, 0.12);
-  background: rgba(255, 255, 255, 0.7);
-  color: var(--ink-soft);
-  cursor: pointer;
-  transition: all 0.15s ease-out;
+@media (prefers-reduced-motion: reduce) {
+  .nav-thumb {
+    transition: none;
+  }
 }
-.icon-btn:hover {
-  color: var(--uestc-blue);
-  background: #fff;
-  transform: translateY(-1px);
-}
-
 /* ---------- 消息铃铛（图标 + 未读动效：旋转光环 + 扫光 + 摇铃，动效移植自参考站） ---------- */
 .bell-btn {
   position: relative;

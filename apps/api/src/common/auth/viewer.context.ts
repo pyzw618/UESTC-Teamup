@@ -51,17 +51,15 @@ export interface SerializedUser {
 }
 
 /**
- * 半匿名序列化（PAGES.md §5 全局约束，在服务端裁剪，不能只靠前端隐藏）
- * 陌生人：昵称/学院/年级/专业/技能
- * 同队 / 本人 / 管理员：额外解锁学号与联系方式
+ * 用户序列化：站内信息全部公开（学号与联系方式对所有人可见），
+ * 便于招募帖/名片页直接联系，不再做半匿名裁剪。
  */
 @Injectable()
 export class UserSerializer {
   constructor(private readonly viewer: ViewerContext) {}
 
   serialize(user: SerializableUser): SerializedUser {
-    const v = this.viewer.get();
-    const base: SerializedUser = {
+    return {
       id: user.id,
       nickname: user.nickname,
       college: user.college,
@@ -69,13 +67,9 @@ export class UserSerializer {
       major: user.major,
       bio: user.bio ?? null,
       skills: (user.skills ?? []).map((s) => ({ skill: s.skill, level: s.level })),
+      studentNo: user.studentNo,
+      contact: user.contact ?? null,
     };
-
-    const sameTeam =
-      Array.isArray(user.teamIds) && v.teamIds.size > 0 && user.teamIds.some((tid) => v.teamIds.has(tid));
-    const canSeePrivate = user.id === v.userId || v.role === 'ADMIN' || sameTeam;
-
-    return canSeePrivate ? { ...base, studentNo: user.studentNo, contact: user.contact ?? null } : base;
   }
 
   serializeMany(users: SerializableUser[]): SerializedUser[] {

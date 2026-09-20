@@ -11,8 +11,9 @@ export interface UpsertTeamInput {
   goal: TeamGoal;
   neededRoles?: RoleType[];
   requirement?: string;
-  /** 广告牌模式下必填：微信/QQ 等直接公开的联系方式 */
-  contact: string;
+  /** 联系方式：QQ 与微信至少填写一项（广告牌模式下直接公开） */
+  qq?: string | null;
+  wechat?: string | null;
   deadline?: Date | null;
   /** 计划招募人数（展示用） */
   targetSize?: number | null;
@@ -67,6 +68,9 @@ export class TeamsService {
     goal?: TeamGoal;
     statuses?: TeamStatus[];
     sort?: 'DEADLINE' | 'LATEST';
+    /** 发布日期范围（含边界，ISO 字符串） */
+    postedFrom?: string;
+    postedTo?: string;
     page: number;
     pageSize: number;
   }) {
@@ -83,6 +87,15 @@ export class TeamsService {
       ...(q.goal ? { goal: q.goal } : {}),
       // 招募方向：帖子的 neededRoles 标签命中即可
       ...(q.roles?.length ? { neededRoles: { hasSome: q.roles } } : {}),
+      // 发布日期范围（postedTo 按「当天 23:59:59」闭包）
+      ...(q.postedFrom || q.postedTo
+        ? {
+            createdAt: {
+              ...(q.postedFrom ? { gte: new Date(q.postedFrom) } : {}),
+              ...(q.postedTo ? { lte: new Date(new Date(q.postedTo).getTime() + 24 * 3600_000 - 1) } : {}),
+            },
+          }
+        : {}),
     };
 
     const orderBy: Prisma.TeamOrderByWithRelationInput =
@@ -155,7 +168,8 @@ export class TeamsService {
       neededRoles: team.neededRoles,
       requirement: team.requirement,
       // 广告牌模式：联系方式直接公开，任何人可见
-      contact: team.contact,
+      qq: team.qq,
+      wechat: team.wechat,
       deadline: team.deadline,
       expired: team.deadline != null && team.deadline < new Date(),
       targetSize: team.targetSize,
@@ -186,7 +200,7 @@ export class TeamsService {
   // ==================================================================
 
   async create(leaderId: string, input: UpsertTeamInput) {
-    const contact = this.assertContact(input.contact);
+    const { qq, wechat } = this.assertContacts(input.qq, input.wechat);
     const competitionId = await this.resolveCompetition(input);
     const neededRoles = this.normalizeRoles(input.neededRoles);
 
@@ -218,7 +232,8 @@ export class TeamsService {
         goal: input.goal,
         neededRoles,
         requirement: input.requirement?.trim() || null,
-        contact,
+        qq,
+        wechat,
         deadline,
         targetSize: this.normalizeTargetSize(input.targetSize),
         members: { create: this.normalizeMembers(input.members) },
@@ -230,7 +245,14 @@ export class TeamsService {
     const team = await this.mustOwn(actorId, teamId);
     if (team.status === TeamStatus.DISBANDED) throw new BadRequestException('帖子已解散归档，不能编辑');
 
-    const contact = input.contact !== undefined ? this.assertContact(input.contact) : undefined;
+    // 联系方式：任一字段提交即整体校验（与存量合并后仍需至少一项）
+    let contacts: { qq: string | null; wechat: string | null } | undefined;
+    if (input.qq !== undefined || input.wechat !== undefined) {
+      contacts = this.assertContacts(
+        input.qq !== undefined ? input.qq : team.qq,
+        input.wechat !== undefined ? input.wechat : team.wechat,
+      );
+    }
     const neededRoles = input.neededRoles !== undefined ? this.normalizeRoles(input.neededRoles) : undefined;
 
     return this.prisma.$transaction(async (tx) => {
@@ -240,7 +262,7 @@ export class TeamsService {
           ...(input.goal ? { goal: input.goal } : {}),
           ...(neededRoles ? { neededRoles } : {}),
           ...(input.requirement !== undefined ? { requirement: input.requirement.trim() || null } : {}),
-          ...(contact !== undefined ? { contact } : {}),
+          ...(contacts !== undefined ? { qq: contacts.qq, wechat: contacts.wechat } : {}),
           ...(input.deadline !== undefined ? { deadline: input.deadline } : {}),
           ...(input.targetSize !== undefined ? { targetSize: this.normalizeTargetSize(input.targetSize) } : {}),
         },
@@ -392,11 +414,14 @@ export class TeamsService {
     return competitionId;
   }
 
-  private assertContact(contact?: string | null): string {
-    const trimmed = contact?.trim();
-    if (!trimmed) throw new BadRequestException('请填写联系方式（微信/QQ），感兴趣的同学需要直接联系你');
-    if (trimmed.length > 200) throw new BadRequestException('联系方式最长 200 字');
-    return trimmed;
+  /** QQ / 微信两个属性，至少填写一项；返回入库用的 trim 结果 */
+  private assertContacts(qq?: string | null, wechat?: string | null): { qq: string | null; wechat: string | null } {
+    const q = qq?.trim() || null;
+    const w = wechat?.trim() || null;
+    if (!q && !w) throw new BadRequestException('请至少填写一项联系方式（QQ / 微信），感兴趣的同学需要直接联系你');
+    if (q && q.length > 64) throw new BadRequestException('QQ 号最长 64 字');
+    if (w && w.length > 64) throw new BadRequestException('微信号最长 64 字');
+    return { qq: q, wechat: w };
   }
 
   private normalizeRoles(roles?: RoleType[]): RoleType[] {

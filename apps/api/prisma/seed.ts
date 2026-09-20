@@ -333,6 +333,7 @@ const DEMO_USERS = [
     grade: 2024,
     major: '信息工程',
     role: 'ADMIN' as const,
+    bio: '机器人队负责人，主攻电控与组织调度；平时整理竞赛信息与保研政策，欢迎来问赛制和组队规划。',
     skills: [['嵌入式', 4], ['组织协调', 3]] as [string, number][],
   },
   {
@@ -344,6 +345,7 @@ const DEMO_USERS = [
     college: '信息与通信工程学院',
     grade: 2024,
     major: '电子信息工程',
+    bio: '刚上大二，先看看大家的组队帖，学习一下竞赛节奏。',
     skills: [['Python', 3]] as [string, number][],
   },
   {
@@ -354,6 +356,7 @@ const DEMO_USERS = [
     college: '信息与通信工程学院',
     grade: 2024,
     major: '电子信息工程',
+    bio: '电子设计竞赛方向，主攻 STM32 与硬件设计，打过两届电赛，目标省一再冲国奖；实验室常驻，欢迎带方案来聊。',
     skills: [['STM32', 4], ['PCB', 3], ['C++', 4]] as [string, number][],
   },
   {
@@ -363,6 +366,7 @@ const DEMO_USERS = [
     college: '数学科学学院',
     grade: 2024,
     major: '数学与应用数学',
+    bio: '数学建模国赛省一，擅长论文写作与 MATLAB 建模，想找能稳定投入的编程手，一起把国赛打满。',
     skills: [['MATLAB', 4], ['论文写作', 4], ['Python', 3]] as [string, number][],
   },
   {
@@ -372,6 +376,7 @@ const DEMO_USERS = [
     college: '计算机科学与工程学院',
     grade: 2023,
     major: '计算机科学与技术',
+    bio: 'ACM 校队成员，Codeforces 1900，主写 C++；欢迎算法同好一起刷题，备战济南区域赛。',
     skills: [['算法竞赛', 5], ['C++', 5], ['深度学习', 3]] as [string, number][],
   },
   {
@@ -381,6 +386,7 @@ const DEMO_USERS = [
     college: '信息与软件工程学院',
     grade: 2025,
     major: '软件工程',
+    bio: '全栈方向，Vue / TypeScript 熟练，正在做 AI+医疗的创新创业项目，缺路演与商业计划书队友。',
     skills: [['Vue', 4], ['TypeScript', 4], ['UI设计', 2]] as [string, number][],
   },
 ];
@@ -423,6 +429,7 @@ async function main() {
         grade: u.grade,
         major: u.major,
         role: u.role ?? 'STUDENT',
+        bio: u.bio ?? null,
         passwordHash: u.password ? hashPassword(u.password) : null,
         skills: { create: u.skills.map(([skill, level]) => ({ skill, level })) },
       },
@@ -524,7 +531,8 @@ async function main() {
       goal: TeamGoal.PRIZE,
       neededRoles: [RoleType.HARDWARE, RoleType.PAPER],
       requirement: '缺硬件和论文队友。有 STM32 开发经验优先，每周能到实验室 3 次以上，目标省一冲国奖。',
-      contact: 'QQ 2451109901（备注：电赛组队）',
+      qq: '2451109901',
+      wechat: 'chen_dianqi_uestc',
       deadline: ddl('2026-10-20T16:00:00Z'),
       targetSize: 4,
       members: [
@@ -539,7 +547,8 @@ async function main() {
       goal: TeamGoal.NATIONAL_FIRST,
       neededRoles: [RoleType.ALGORITHM],
       requirement: '三人队还缺一名编程手（Python/MATLAB 均可），最好有数值算法功底，赛前一起刷真题。',
-      contact: '微信 ljianmo2024',
+      qq: null,
+      wechat: 'ljianmo2024',
       deadline: ddl('2027-09-03T16:00:00Z'),
       targetSize: 3,
       members: [
@@ -553,7 +562,8 @@ async function main() {
       goal: TeamGoal.PRACTICE,
       neededRoles: [RoleType.ALGORITHM, RoleType.OTHER],
       requirement: '招一名能稳定出的队友，Codeforces 1600+ 优先，一起备战济南区域赛。',
-      contact: 'QQ 1133246670',
+      qq: '1133246670',
+      wechat: null,
       deadline: ddl('2026-09-30T16:00:00Z'),
       targetSize: 3,
       members: [
@@ -567,7 +577,8 @@ async function main() {
       goal: TeamGoal.BONUS_ONLY,
       neededRoles: [RoleType.DEFENSE, RoleType.PAPER],
       requirement: '已有完整项目（AI+医疗方向），缺路演和商业计划书撰写队友，加分为主、拿奖随缘。',
-      contact: '微信 wangfd_uestc',
+      qq: null,
+      wechat: 'wangfd_uestc',
       deadline: ddl('2026-09-28T16:00:00Z'),
       targetSize: 5,
       members: [
@@ -582,7 +593,8 @@ async function main() {
       goal: TeamGoal.PRACTICE,
       neededRoles: [RoleType.HARDWARE, RoleType.ALGORITHM, RoleType.FRONTEND],
       requirement: '机器人队秋季招新，机械/电控/视觉三个方向都要人，氛围好、经费足。',
-      contact: 'QQ 986312504（机器人队招新群）',
+      qq: '986312504',
+      wechat: null,
       deadline: ddl('2026-10-15T16:00:00Z'),
       targetSize: 8,
       members: [
@@ -601,7 +613,8 @@ async function main() {
         goal: t.goal,
         neededRoles: t.neededRoles,
         requirement: t.requirement,
-        contact: t.contact,
+        qq: t.qq,
+        wechat: t.wechat,
         deadline: t.deadline,
         targetSize: t.targetSize,
         status: t.status,

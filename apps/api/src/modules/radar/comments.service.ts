@@ -14,9 +14,14 @@ export class CommentsService {
   async create(authorId: string, dto: { targetType: CommentTarget; targetId: string; content: string; parentId?: string }) {
     await this.assertTarget(dto.targetType, dto.targetId);
 
+    // 楼中楼拍平：回复的回复挂到根评论下，真实回复对象记在 replyToId
+    let rootId: string | null = null;
+    let replyToId: string | null = null;
     if (dto.parentId) {
       const parent = await this.prisma.comment.findUnique({ where: { id: dto.parentId } });
       if (!parent || parent.targetId !== dto.targetId) throw new BadRequestException('父评论不存在');
+      rootId = parent.parentId ?? parent.id;
+      replyToId = parent.parentId ? parent.id : null;
     }
 
     const comment = await this.prisma.comment.create({
@@ -25,7 +30,8 @@ export class CommentsService {
         targetType: dto.targetType,
         targetId: dto.targetId,
         content: dto.content,
-        parentId: dto.parentId ?? null,
+        parentId: rootId,
+        replyToId,
       },
       include: { author: true },
     });
@@ -63,10 +69,21 @@ export class CommentsService {
 
     const likedIds = await this.likedCommentIds(viewerId, [...ids, ...replies.map((r) => r.id)]);
 
+    // 批量取「回复的回复」的真实对象昵称（replyToId 指向的评论作者）
+    const replyToIds = [...new Set(replies.map((r) => r.replyToId).filter((x): x is string => !!x))];
+    const replyToAuthors = replyToIds.length
+      ? await this.prisma.comment.findMany({
+          where: { id: { in: replyToIds } },
+          select: { id: true, author: { select: { nickname: true } } },
+        })
+      : [];
+    const replyToMap = new Map(replyToAuthors.map((a) => [a.id, a.author.nickname]));
+
     const shape = (c: (typeof rows)[number]) => ({
       id: c.id,
       content: c.content,
       parentId: c.parentId,
+      replyTo: c.replyToId ? { id: c.replyToId, nickname: replyToMap.get(c.replyToId) ?? null } : null,
       likes: c.likes,
       liked: likedIds.has(c.id),
       createdAt: c.createdAt,

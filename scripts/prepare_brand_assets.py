@@ -1,6 +1,6 @@
 # -*- coding: utf-8 -*-
 """
-素材加工：把 LOGO&成电元素 的原始 PNG 加工成前端可用的品牌资源。
+素材加工：把 assets/brand 的原始 PNG 加工成前端可用的品牌资源。
 
 加工原则（与站点设计 token 对齐）：
 - 深蓝 #0F4C8C（校徽主色）/ 浅蓝 #4A7FB5 / 银杏金 #D99F00
@@ -13,7 +13,7 @@ import os
 
 from PIL import Image
 
-SRC = "LOGO&成电元素"
+SRC = os.path.join("assets", "brand")
 DST = os.path.join("apps", "web", "public", "brand")
 os.makedirs(DST, exist_ok=True)
 

@@ -10,6 +10,7 @@
 |---|---|---|
 | [TECH_STACK.md](./TECH_STACK.md) | 技术选型与理由、内存预算、架构、部署、仓库结构、依赖清单 | 开工前 / 想加新组件前 |
 | [DATA_MODEL.md](./DATA_MODEL.md) | 表设计、关系、枚举、Prisma schema 草图 | 写迁移、改字段前 |
+| [FIELDS.md](./FIELDS.md) | 字段清单（可编辑）：各实体字段的展示/编辑/必填口径 | 改表单、改序列化裁剪前 |
 | [PAGES.md](./PAGES.md) | 信息架构、路由表、每个页面的要素与交互 | 写前端前 |
 | [MODULE_CRAWLER.md](./MODULE_CRAWLER.md) | **采集子系统**技术路线 —— 本项目最复杂的模块 | 做采集时 |
 | [MODULE_AUTH.md](./MODULE_AUTH.md) | 登录与邮件技术路线 | 做登录时 |

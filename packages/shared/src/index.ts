@@ -1,5 +1,5 @@
 /**
- * 前后端共享的枚举与类型（与 docs/字段清单.md 对齐）
+ * 前后端共享的枚举与类型（与 docs/FIELDS.md 对齐）
  *
  * 2026-09-19「广告牌模式」改版：
  * - 移除 Application / Invitation / TeamMember / TeamSlot / Review 相关枚举

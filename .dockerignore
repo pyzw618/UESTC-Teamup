@@ -1,0 +1,23 @@
+# 构建上下文 = 仓库根（docker/Dockerfile.api 与 docker/Dockerfile.web 共用）
+.git
+**/.git
+node_modules
+**/node_modules
+**/dist
+**/coverage
+**/.turbo
+**/.vite
+**/*.tsbuildinfo
+logs
+**/*.log
+**/.env
+**/.env.local
+.zcode
+.zcodeignore
+.firecrawl
+前端参考
+assets
+data
+docs
+**/*.md
+LICENSE

@@ -1,0 +1,23 @@
+# syntax=docker/dockerfile:1
+# 后端镜像（NestJS + Prisma）
+# 构建上下文必须是【仓库根目录】（pnpm workspace 跨包依赖 @teamup/shared）：
+#   docker build -f docker/Dockerfile.api -t teamup-api .
+
+FROM node:20-alpine AS build
+RUN corepack enable
+WORKDIR /repo
+COPY . .
+RUN pnpm install --frozen-lockfile
+RUN pnpm -F @teamup/shared build && pnpm -F @teamup/api build
+
+FROM node:20-alpine AS runtime
+# Prisma 引擎在 Alpine 上依赖 openssl
+RUN apk add --no-cache openssl && corepack enable
+ENV NODE_ENV=production
+WORKDIR /repo
+COPY --from=build /repo ./
+WORKDIR /repo/apps/api
+EXPOSE 3000
+# 首次部署 / 升级后执行迁移（本目录含 prisma/schema.prisma）：
+#   docker compose exec api npx prisma migrate deploy
+CMD ["node", "dist/main.js"]

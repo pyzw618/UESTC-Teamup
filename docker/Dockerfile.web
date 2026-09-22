@@ -1,0 +1,16 @@
+# syntax=docker/dockerfile:1
+# 前端镜像（Vite 构建产物 + nginx 托管静态资源并反代 /api）
+# 构建上下文必须是【仓库根目录】：
+#   docker build -f docker/Dockerfile.web -t teamup-web .
+
+FROM node:20-alpine AS build
+RUN corepack enable
+WORKDIR /repo
+COPY . .
+RUN pnpm install --frozen-lockfile
+RUN pnpm -F @teamup/shared build && pnpm -F @teamup/web build
+
+FROM nginx:1.27-alpine AS runtime
+COPY deploy/nginx.conf /etc/nginx/conf.d/default.conf
+COPY --from=build /repo/apps/web/dist /usr/share/nginx/html
+EXPOSE 80

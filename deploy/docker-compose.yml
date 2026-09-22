@@ -32,8 +32,8 @@ services:
 
   api:
     build:
-      context: ../apps/api
-      dockerfile: Dockerfile
+      context: ..
+      dockerfile: docker/Dockerfile.api
     restart: unless-stopped
     depends_on:
       db:
@@ -58,8 +58,8 @@ services:
 
   web:
     build:
-      context: ../apps/web
-      dockerfile: Dockerfile
+      context: ..
+      dockerfile: docker/Dockerfile.web
     restart: unless-stopped
     depends_on:
       - api

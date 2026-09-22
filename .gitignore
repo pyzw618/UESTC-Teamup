@@ -1,16 +1,47 @@
+# ---- 依赖 / 构建产物 ----
 node_modules/
 dist/
+*.tsbuildinfo
+.turbo/
+.vite/
+
+# ---- 环境变量与机密（仅提交 *.example）----
 .env
 .env.local
-*.local
-.DS_Store
+.env.*.local
+
+# ---- 日志 ----
 logs/
 *.log
+
+# ---- 测试 ----
 coverage/
-.turbo/
-vite-dist/
-apps/web/dist/
-apps/api/dist/
-packages/shared/dist/
-prisma/migrations/dev.db*
+test-results/
+
+# ---- 操作系统 / 编辑器 ----
+.DS_Store
+Thumbs.db
+desktop.ini
+.idea/
+.vscode/
+*.swp
+*.swo
+
+# ---- Python（数据处理脚本）----
+__pycache__/
+*.py[cod]
+.venv/
+
+# ---- 本地工具缓存（个人环境，不入库）----
 .zcode
+.zcodeignore
+.firecrawl/
+
+# ---- 设计参考素材（仅本地留存，不入库）----
+前端参考/
+
+# ---- 校方原始文件（提取产物 bonus-list.json 已入库，原件仅本地）----
+/data/*.pdf
+
+# ---- 其他 ----
+prisma/migrations/dev.db*

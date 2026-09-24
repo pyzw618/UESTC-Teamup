@@ -8,6 +8,7 @@ import { RadarModule } from './modules/radar/radar.module';
 import { MatchModule } from './modules/match/match.module';
 import { AdminModule } from './modules/admin/admin.module';
 import { JobsModule } from './jobs/jobs.module';
+import { CrawlerModule } from './modules/crawler/crawler.module';
 
 import { Module } from '@nestjs/common';
 import { ConfigModule } from '@nestjs/config';
@@ -31,6 +32,7 @@ import { AuthGuard } from './common/auth/auth.guard';
     MatchModule,
     AdminModule,
     JobsModule,
+    CrawlerModule,
   ],
   providers: [{ provide: APP_GUARD, useClass: AuthGuard }],
 })

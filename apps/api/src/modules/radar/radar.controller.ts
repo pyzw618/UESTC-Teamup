@@ -151,7 +151,7 @@ export class RadarController {
 
   @Delete('comments/:id')
   deleteComment(@CurrentUser() user: User, @Param('id') id: string) {
-    return this.comments.delete(user.id, id);
+    return this.comments.delete(user.id, id, user.role);
   }
 
   /** 关注（竞赛 = 接收 DDL 提醒）与收藏；重复调用即取消 */

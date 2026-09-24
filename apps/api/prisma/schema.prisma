@@ -177,7 +177,8 @@ model UserSkill {
 
 model Competition {
   id          String  @id @default(cuid())
-  name        String
+  // M2：竞赛名唯一（同名竞赛会造成雷达列表重复、纠错/收藏指向歧义）
+  name        String  @unique
   aliases     String[]
   organizer   String?
   officialUrl String?

@@ -105,7 +105,11 @@ export interface TeamDetail extends TeamListItem {
   competition: { id: string; name: string; levels: string[]; officialUrl: string | null };
   /** 已有成员情况（队长手填，纯展示） */
   members: { id: string; grade: number | null; college: string | null; major: string | null; rank: string | null; intro: string | null }[];
-  viewer: { isLeader: boolean };
+  /**
+   * M15：后端契约 —— isLeader 仅表示「真实队长」，isAdmin 表示「当前用户是管理员」。
+   * 写操作（编辑/解散/切状态）只看 isLeader；管理员在详情页是只读视角。
+   */
+  viewer: { isLeader: boolean; isAdmin?: boolean };
 }
 
 export interface NotificationItem {
@@ -158,9 +162,21 @@ export interface CommentItem {
   replies: CommentItem[];
 }
 
+/**
+ * M9：截止日期剩余天数，按**日历天差**计算（不是毫秒差取整）。
+ *
+ * 原实现 `Math.ceil((end - now) / 86400_000)` 的问题：
+ * 今晚 23:59 截止会显示「剩 1 天」，午夜前后口径跳变；
+ * 且过期为负数，调用方若只判 `>0` 就会把已过期误显示成「今日截止」。
+ *
+ * 新语义：0 = 今天截止，负数 = 已过期（N 天前截止）。
+ * 例：今天 00:01 与今天 23:59 都返回 0。
+ */
 export function daysLeft(endAt: string | null): number | null {
   if (!endAt) return null;
-  return Math.ceil((new Date(endAt).getTime() - Date.now()) / 86400_000);
+  const end = dayjs(endAt);
+  if (!end.isValid()) return null;
+  return end.startOf('day').diff(dayjs().startOf('day'), 'day');
 }
 
 export function fmtDate(s: string | null | undefined, withTime = false): string {

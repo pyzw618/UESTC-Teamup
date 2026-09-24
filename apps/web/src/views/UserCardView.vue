@@ -4,7 +4,6 @@ import { useRoute } from 'vue-router';
 import { api } from '../api/client';
 import { fmtDate, type TeamSummary } from '../api/types';
 import UserAvatar from '../components/UserAvatar.vue';
-import { useAuthStore } from '../stores/auth';
 
 interface PublicCard {
   id: string;
@@ -19,11 +18,11 @@ interface PublicCard {
 }
 
 const route = useRoute();
-const auth = useAuthStore();
 
 const user = ref<PublicCard | null>(null);
 const teams = ref<(TeamSummary & { competition?: { name: string } })[]>([]);
 const loading = ref(true);
+const error = ref(false);
 
 onMounted(async () => {
   try {
@@ -33,6 +32,9 @@ onMounted(async () => {
     ]);
     user.value = u;
     teams.value = t;
+  } catch {
+    // H13：接口失败（用户不存在/被隐藏/网络错误）不能整页空白，落到错误态 UI
+    error.value = true;
   } finally {
     loading.value = false;
   }
@@ -42,6 +44,11 @@ onMounted(async () => {
 <template>
   <div class="page-wrap max-w-680px mx-auto">
     <div v-if="loading" class="skeleton h-240px"></div>
+    <div v-else-if="error" class="glass p-28px">
+      <el-empty description="用户不存在或加载失败" :image-size="80">
+        <el-button type="primary" round @click="$router.push('/')">返回首页</el-button>
+      </el-empty>
+    </div>
     <template v-else-if="user">
       <!-- 公开名片：站内信息全部可见 -->
       <section class="glass p-28px animate-appear">

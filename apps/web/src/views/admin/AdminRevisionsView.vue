@@ -19,6 +19,9 @@ async function load() {
     );
     items.value = res.items;
     total.value = res.total;
+  } catch (e) {
+    // H10：补 catch
+    ElMessage.error(e instanceof Error ? e.message : '版本历史加载失败');
   } finally {
     loading.value = false;
   }
@@ -34,14 +37,22 @@ const originType = (o: string) => (o === 'CRAWL' ? 'primary' : o === 'MANUAL' ? 
 
 async function rollback(row: Record<string, unknown>) {
   const r = row as unknown as RevisionItem;
-  await ElMessageBox.confirm(
-    `将「${r.field}」从 ${val(r.newValue)} 回滚到 ${val(r.oldValue)}？回滚动作本身也会记录一条版本。`,
-    '一键回滚',
-    { type: 'warning' },
-  );
-  await api.post(`/admin/revisions/${r.id}/rollback`);
-  ElMessage.success('已回滚');
-  load();
+  try {
+    await ElMessageBox.confirm(
+      `将「${r.field}」从 ${val(r.newValue)} 回滚到 ${val(r.oldValue)}？回滚动作本身也会记录一条版本。`,
+      '一键回滚',
+      { type: 'warning' },
+    );
+  } catch {
+    return; // H10：用户取消 / 关闭弹窗
+  }
+  try {
+    await api.post(`/admin/revisions/${r.id}/rollback`);
+    ElMessage.success('已回滚');
+  } catch (e) {
+    ElMessage.error(e instanceof Error ? e.message : '回滚失败');
+  }
+  await load();
 }
 
 function val(s: string | null) {

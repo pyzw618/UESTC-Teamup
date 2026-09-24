@@ -37,6 +37,8 @@ async function searchCompetition(word: string) {
   try {
     const res = await api.get<{ competitions: { id: string; name: string }[] }>(`/search${qs({ q: word })}`);
     competitionOptions.value = res.competitions;
+  } catch {
+    /* 搜索失败保持原有选项，不打断输入 */
   } finally {
     competitionSearching.value = false;
   }

@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { ref, reactive, onMounted, watch, computed } from 'vue';
+import { ref, reactive, onMounted, onBeforeUnmount, watch, computed } from 'vue';
 import { useRoute, useRouter } from 'vue-router';
 import { ElMessage } from 'element-plus';
 import { AudienceLabel, CompetitionFormatLabel, Audience, CompetitionFormat, Level, LevelLabel } from '@teamup/shared';
@@ -11,9 +11,21 @@ import { useSlideThumb } from '../../composables/useSlideThumb';
 const route = useRoute();
 const router = useRouter();
 
+/**
+ * H9e：`?levels=A&levels=B` 这种数组形式在 `as string` 下会拿到 string[]，
+ * 直接 `.split` 抛 TypeError，整个筛选侧栏白屏。统一先转字符串再 split。
+ */
+function parseLevels(raw: unknown): string[] {
+  const s = Array.isArray(raw) ? raw.join(',') : String(raw ?? '');
+  return s.split(',').filter(Boolean);
+}
+function readQueryString(raw: unknown): string {
+  return Array.isArray(raw) ? String(raw[0] ?? '') : String(raw ?? '');
+}
+
 const filters = reactive({
-  q: (route.query.q as string) || '',
-  levels: (route.query.levels as string)?.split(',').filter(Boolean) || [] as string[],
+  q: readQueryString(route.query.q),
+  levels: parseLevels(route.query.levels),
   audience: '',
   format: '',
   bonusOnly: false,
@@ -36,40 +48,102 @@ const levelOptions = [
   { value: Level.SCHOOL, label: LevelLabel[Level.SCHOOL] },
 ];
 
+/**
+ * H9b：竞态防护。用户快速改筛选时会有多个请求在飞，
+ * 先发的后到就会覆盖后发的结果（列表与筛选条件不一致）。
+ * 用自增 requestId，只有最新一次请求的响应才落地。
+ */
+let requestSeq = 0;
+
 async function load() {
+  const reqId = ++requestSeq;
   loading.value = true;
   try {
     const res = await api.get<{ items: CompetitionListItem[]; total: number }>(
       `/competitions${qs({ ...filters, page: page.value, pageSize })}`,
     );
+    if (reqId !== requestSeq) return; // 已有更新的请求，丢弃本次响应
     items.value = res.items;
     total.value = res.total;
+  } catch (e) {
+    if (reqId !== requestSeq) return;
+    // H9d：原实现只有 try/finally，失败即 unhandled rejection 且用户无任何反馈
+    ElMessage.error(e instanceof Error ? e.message : '竞赛列表加载失败，请稍后重试');
   } finally {
-    loading.value = false;
+    if (reqId === requestSeq) loading.value = false;
   }
 }
 
-watch(filters, () => {
-  page.value = 1;
-  syncUrl();
-  load();
+/**
+ * H9a：搜索输入防抖 300ms。
+ *
+ * 关键点：搜索框绑定的是 `searchInput`（普通 ref），**不是** `filters.q`。
+ * filters 是 reactive 对象、watch 默认深度监听，如果 v-model 直连 filters.q，
+ * 每敲一个字符就会触发一次请求（原缺陷）。这里让「输入 → filters.q」之间隔一层
+ * 300ms 防抖：只有防抖到期才写 filters.q，从而只发一次请求。
+ * 其余筛选（下拉/复选/排序）是离散操作，立即生效。
+ */
+const searchInput = ref(readQueryString(route.query.q));
+let searchTimer: ReturnType<typeof setTimeout> | null = null;
+
+watch(searchInput, (v) => {
+  if (searchTimer) clearTimeout(searchTimer);
+  searchTimer = setTimeout(() => {
+    searchTimer = null;
+    if (filters.q !== v) filters.q = v; // → filters watcher 触发 load
+  }, 300);
 });
-watch(page, load);
+
+onBeforeUnmount(() => {
+  if (searchTimer) clearTimeout(searchTimer);
+});
+
+/**
+ * H9c：单一数据流 route.query → filters → watch → load。
+ * 写操作（下拉、复选框、排序、搜索框、分页）只改 filters/page，统一由下面两个
+ * watcher 触发 load；已去掉 `@change="load"` 与路由 watcher 里手动 load() 的重复触发源。
+ */
+watch(
+  filters,
+  () => {
+    if (page.value !== 1) {
+      // 改筛选条件回到第一页；page watcher 会负责这次加载
+      page.value = 1;
+      syncUrl();
+      return;
+    }
+    syncUrl();
+    load();
+  },
+  { deep: true },
+);
+watch(page, () => load());
 
 function syncUrl() {
   router.replace({ query: { ...route.query, q: filters.q || undefined, levels: filters.levels.join(',') || undefined, bonusOnly: filters.bonusOnly ? 'true' : undefined } });
 }
 
+/**
+ * 外部路由变化（浏览器前进/后退、站内跳转带 query）回填到 filters；
+ * 回填本身会触发 filters watcher → load，这里不再手动加载。
+ */
 watch(
   () => route.query,
   (nq) => {
-    if ((nq.q ?? '') !== filters.q) filters.q = (nq.q as string) || '';
-    const lv = (nq.levels as string)?.split(',').filter(Boolean) || [];
-    if (lv.join(',') !== filters.levels.join(',')) filters.levels = lv;
-    if (nq.bonusOnly === 'true' && !filters.bonusOnly) {
-      filters.bonusOnly = true;
-      load();
+    const q = readQueryString(nq.q);
+    if (q !== searchInput.value) searchInput.value = q;
+    if (q !== filters.q) {
+      // 外部导航应即时生效，取消可能还在挂起的防抖
+      if (searchTimer) {
+        clearTimeout(searchTimer);
+        searchTimer = null;
+      }
+      filters.q = q;
     }
+    const lv = parseLevels(nq.levels);
+    if (lv.join(',') !== filters.levels.join(',')) filters.levels = lv;
+    const bonus = nq.bonusOnly === 'true';
+    if (bonus !== filters.bonusOnly) filters.bonusOnly = bonus;
   },
 );
 
@@ -86,7 +160,8 @@ const statusColor: Record<string, string> = {
 function deadlineText(c: CompetitionListItem) {
   const d = daysLeft(c.nextDeadline);
   if (d == null) return '暂无节点';
-  if (d <= 0) return '今天截止';
+  if (d < 0) return '已截止';
+  if (d === 0) return '今天截止';
   return `剩 ${d} 天`;
 }
 
@@ -168,18 +243,16 @@ const activeFilterCount = computed(
       <div>
         <div class="glass !rounded-14px px-14px py-10px mb-14px flex items-center gap-10px flex-wrap">
           <el-input
-            v-model="filters.q"
+            v-model="searchInput"
             placeholder="搜索竞赛名称或别名…"
             clearable
             style="max-width: 300px"
-            @keyup.enter="load"
-            @clear="load"
           >
             <template #prefix><el-icon><i-ep-search /></el-icon></template>
           </el-input>
           <div class="flex items-center gap-6px ml-auto">
             <span class="text-13px color-ink-soft">排序</span>
-            <el-select v-model="filters.sort" style="width: 140px" @change="load">
+            <el-select v-model="filters.sort" style="width: 140px">
               <el-option value="LATEST" label="最新收录" />
               <el-option value="DEADLINE" label="报名截止临近" />
               <el-option value="DIFFICULTY" label="难度" />

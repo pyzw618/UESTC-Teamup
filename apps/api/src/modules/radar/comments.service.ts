@@ -1,17 +1,34 @@
 import { BadRequestException, ForbiddenException, Injectable, NotFoundException } from '@nestjs/common';
 import { CommentTarget } from '@teamup/shared';
+import { Prisma } from '@prisma/client';
 import { PrismaService } from '../../common/prisma.service';
+import { RedisService } from '../../common/redis.service';
 import { NotificationService } from '../notification/notification.service';
+
+/** 评论发布限流：每分钟上限 */
+const COMMENT_RATE_LIMIT = 10;
+
+/** 唯一键冲突（并发下另一个请求已点赞） */
+const isUniqueViolation = (e: unknown) =>
+  e instanceof Prisma.PrismaClientKnownRequestError && e.code === 'P2002';
+/** 目标行不存在（并发下已被另一个请求取消点赞） */
+const isRecordNotFound = (e: unknown) =>
+  e instanceof Prisma.PrismaClientKnownRequestError && e.code === 'P2025';
 
 @Injectable()
 export class CommentsService {
   constructor(
     private readonly prisma: PrismaService,
     private readonly notify: NotificationService,
+    private readonly redis: RedisService,
   ) {}
 
   /** 多态评论（Q7）：存在性校验在应用层 */
   async create(authorId: string, dto: { targetType: CommentTarget; targetId: string; content: string; parentId?: string }) {
+    // UGC 限流：10 条/分钟（M14）
+    const hits = await this.redis.incrWithTtl(`rl:comment:create:${authorId}`, 60);
+    if (hits > COMMENT_RATE_LIMIT) throw new BadRequestException('操作太频繁，请稍后再试');
+
     await this.assertTarget(dto.targetType, dto.targetId);
 
     // 楼中楼拍平：回复的回复挂到根评论下，真实回复对象记在 replyToId
@@ -93,40 +110,61 @@ export class CommentsService {
     return rows.map((r) => ({ ...shape(r), replies: replies.filter((x) => x.parentId === r.id).map(shape) }));
   }
 
-  /** 点赞 / 取消点赞（幂等切换），返回最新状态 */
+  /**
+   * 点赞 / 取消点赞（幂等切换），返回最新状态。
+   * 不再「事务内先读后写」：两个并发事务都能通过读检查，最终仍会撞联合主键。
+   * 改为让数据库唯一键裁决 —— create 撞 P2002 即视为已点赞，delete 撞 P2025 即视为已取消，
+   * 计数只在写入真正成功时增减，避免并发下计数漂移。
+   */
   async toggleLike(userId: string, commentId: string) {
-    const comment = await this.prisma.comment.findUnique({ where: { id: commentId } });
+    const comment = await this.prisma.comment.findUnique({ where: { id: commentId }, select: { id: true } });
     if (!comment) throw new NotFoundException('评论不存在');
 
-    return this.prisma.$transaction(async (tx) => {
-      const existing = await tx.commentLike.findUnique({
-        where: { userId_commentId: { userId, commentId } },
-      });
-      if (existing) {
-        await tx.commentLike.delete({ where: { userId_commentId: { userId, commentId } } });
-        const updated = await tx.comment.update({
+    const key = { userId_commentId: { userId, commentId } };
+    try {
+      // 点赞行与计数同事务：唯一键冲突时整体回滚，计数不会因半途失败而漂移
+      const [, updated] = await this.prisma.$transaction([
+        this.prisma.commentLike.create({ data: { userId, commentId } }),
+        this.prisma.comment.update({
           where: { id: commentId },
-          data: { likes: { decrement: 1 } },
+          data: { likes: { increment: 1 } },
           select: { likes: true },
-        });
-        return { liked: false, likes: Math.max(0, updated.likes) };
-      }
-      await tx.commentLike.create({ data: { userId, commentId } });
-      const updated = await tx.comment.update({
-        where: { id: commentId },
-        data: { likes: { increment: 1 } },
-        select: { likes: true },
-      });
+        }),
+      ]);
       return { liked: true, likes: updated.likes };
-    });
+    } catch (e) {
+      if (!isUniqueViolation(e)) throw e;
+      // 已点赞 → 本次视为取消
+      try {
+        const [, updated] = await this.prisma.$transaction([
+          this.prisma.commentLike.delete({ where: key }),
+          this.prisma.comment.update({
+            where: { id: commentId },
+            data: { likes: { decrement: 1 } },
+            select: { likes: true },
+          }),
+        ]);
+        return { liked: false, likes: Math.max(0, updated.likes) };
+      } catch (e2) {
+        if (!isRecordNotFound(e2)) throw e2;
+        // 已被并发取消：计数未被触碰，直接回读当前值
+        const current = await this.prisma.comment.findUnique({ where: { id: commentId }, select: { likes: true } });
+        return { liked: false, likes: Math.max(0, current?.likes ?? 0) };
+      }
+    }
   }
 
-  async delete(userId: string, id: string) {
+  /** 删除评论：主评论与楼中楼回复同一事务删除；作者本人或管理员可删 */
+  async delete(userId: string, id: string, viewerRole?: string) {
     const comment = await this.prisma.comment.findUnique({ where: { id } });
     if (!comment) throw new NotFoundException();
-    if (comment.authorId !== userId) throw new ForbiddenException('只能删除自己的评论');
-    await this.prisma.comment.delete({ where: { id } });
-    await this.prisma.comment.deleteMany({ where: { parentId: id } });
+    if (comment.authorId !== userId && viewerRole !== 'ADMIN') {
+      throw new ForbiddenException('只能删除自己的评论');
+    }
+    await this.prisma.$transaction([
+      this.prisma.comment.delete({ where: { id } }),
+      this.prisma.comment.deleteMany({ where: { parentId: id } }),
+    ]);
     return { deleted: true };
   }
 

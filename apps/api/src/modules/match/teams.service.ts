@@ -1,6 +1,7 @@
 import { BadRequestException, ForbiddenException, Injectable, NotFoundException } from '@nestjs/common';
 import { NotificationKind, Prisma, RoleType, TeamGoal, TeamStatus, type Team } from '@prisma/client';
 import { PrismaService } from '../../common/prisma.service';
+import { RedisService } from '../../common/redis.service';
 import { UserSerializer, type SerializableUser } from '../../common/auth/viewer.context';
 import { NotificationService } from '../notification/notification.service';
 
@@ -10,7 +11,8 @@ export interface UpsertTeamInput {
   competitionName?: string;
   goal: TeamGoal;
   neededRoles?: RoleType[];
-  requirement?: string;
+  /** 具体要求：传 null 表示清空（PATCH 中缺省才表示不更新） */
+  requirement?: string | null;
   /** 联系方式：QQ 与微信至少填写一项（广告牌模式下直接公开） */
   qq?: string | null;
   wechat?: string | null;
@@ -34,8 +36,9 @@ const MANUAL_STATUSES: TeamStatus[] = [TeamStatus.RECRUITING, TeamStatus.FULL, T
 const DISCOVERABLE_STATUSES: TeamStatus[] = [TeamStatus.RECRUITING, TeamStatus.FULL, TeamStatus.COMPETING];
 
 /**
- * 用户安全字段投影：绝不直接返回 Prisma User 对象（会泄漏 passwordHash / email 等）。
- * studentNo 交由 UserSerializer 按可见规则决定是否输出。
+ * 用户字段投影：只用于避免把 Prisma User 对象整份返回（会带上 passwordHash / email）。
+ * 广告牌模式下站内信息全部公开（产品决策）：nickname / college / grade / major / bio /
+ * studentNo 对所有人可见，UserSerializer 不做任何按可见性裁剪，此处也不再承诺「半匿名」。
  */
 const SAFE_USER_SELECT = {
   id: true,
@@ -50,12 +53,16 @@ const SAFE_USER_SELECT = {
 
 type SafeUser = Prisma.UserGetPayload<{ select: typeof SAFE_USER_SELECT }>;
 
+/** 发帖入口分布式锁：同一用户串行化，避免并发请求同时通过活跃帖上限 / 24h 去重检查 */
+const CREATE_LOCK_TTL_SECONDS = 10;
+
 @Injectable()
 export class TeamsService {
   constructor(
     private readonly prisma: PrismaService,
     private readonly notify: NotificationService,
     private readonly serializer: UserSerializer,
+    private readonly redis: RedisService,
   ) {}
 
   // ==================================================================
@@ -158,7 +165,10 @@ export class TeamsService {
     });
     if (!team) throw new NotFoundException('招募帖不存在');
 
-    const isLeader = viewerId != null && (team.leaderId === viewerId || viewerRole === 'ADMIN');
+    // viewer 语义拆分：isLeader 只代表「真实队长」（写操作 mustOwn 仅认 leaderId，管理员不放行写），
+    // isAdmin 单独暴露，前端据此决定展示编辑控件还是管理员入口。
+    const isLeader = viewerId != null && team.leaderId === viewerId;
+    const isAdmin = viewerRole === 'ADMIN';
     const commentCounts = await this.commentCounts([team.id]);
 
     return {
@@ -167,7 +177,7 @@ export class TeamsService {
       status: team.status,
       neededRoles: team.neededRoles,
       requirement: team.requirement,
-      // 广告牌模式：联系方式直接公开，任何人可见
+      // 广告牌模式（产品决策）：联系方式就是招募帖的公开内容，任何人可见，不做可见性裁剪
       qq: team.qq,
       wechat: team.wechat,
       deadline: team.deadline,
@@ -191,7 +201,7 @@ export class TeamsService {
         officialUrl: team.competition.officialUrl,
       },
       leader: this.serialize(team.leader),
-      viewer: { isLeader },
+      viewer: { isLeader, isAdmin },
     };
   }
 
@@ -201,44 +211,55 @@ export class TeamsService {
 
   async create(leaderId: string, input: UpsertTeamInput) {
     const { qq, wechat } = this.assertContacts(input.qq, input.wechat);
-    const competitionId = await this.resolveCompetition(input);
     const neededRoles = this.normalizeRoles(input.neededRoles);
 
-    // 防刷：活跃帖上限（MODULE_MATCH §6）
-    const activeCount = await this.prisma.team.count({
-      where: { leaderId, status: { in: [TeamStatus.RECRUITING, TeamStatus.FULL] } },
-    });
-    if (activeCount >= DAILY_POST_LIMIT) throw new BadRequestException('你已有 5 条招募中的帖子，请先处理现有帖子');
+    // 防刷检查（活跃帖上限 / 24h 去重）本质是 check-then-act：并发 6 个请求可全部通过。
+    // 用 Redis 分布式锁把同一用户的发帖串行化，抢不到锁直接拒绝。
+    const lockKey = `team:create:${leaderId}`;
+    const locked = await this.redis.lock(lockKey, CREATE_LOCK_TTL_SECONDS);
+    if (!locked) throw new BadRequestException('操作太频繁，请稍后再试');
 
-    const dup = await this.prisma.team.findFirst({
-      where: { leaderId, competitionId, createdAt: { gte: new Date(Date.now() - 24 * 3600_000) } },
-    });
-    if (dup) throw new BadRequestException('你在 24 小时内已为该竞赛发布过组队，请勿重复发帖');
+    try {
+      const competitionId = await this.resolveCompetition(input);
 
-    // 招募截止默认填竞赛报名截止时间
-    let deadline = input.deadline ?? null;
-    if (!deadline) {
-      const signup = await this.prisma.competitionTimeline.findFirst({
-        where: { competitionId, stage: { contains: '报名' }, endAt: { gt: new Date() } },
-        orderBy: { endAt: 'asc' },
+      // 防刷：活跃帖上限（MODULE_MATCH §6）
+      const activeCount = await this.prisma.team.count({
+        where: { leaderId, status: { in: [TeamStatus.RECRUITING, TeamStatus.FULL] } },
       });
-      deadline = signup?.endAt ?? null;
-    }
+      if (activeCount >= DAILY_POST_LIMIT) throw new BadRequestException('你已有 5 条招募中的帖子，请先处理现有帖子');
 
-    return this.prisma.team.create({
-      data: {
-        competitionId,
-        leaderId,
-        goal: input.goal,
-        neededRoles,
-        requirement: input.requirement?.trim() || null,
-        qq,
-        wechat,
-        deadline,
-        targetSize: this.normalizeTargetSize(input.targetSize),
-        members: { create: this.normalizeMembers(input.members) },
-      },
-    });
+      const dup = await this.prisma.team.findFirst({
+        where: { leaderId, competitionId, createdAt: { gte: new Date(Date.now() - 24 * 3600_000) } },
+      });
+      if (dup) throw new BadRequestException('你在 24 小时内已为该竞赛发布过组队，请勿重复发帖');
+
+      // 招募截止默认填竞赛报名截止时间
+      let deadline = input.deadline ?? null;
+      if (!deadline) {
+        const signup = await this.prisma.competitionTimeline.findFirst({
+          where: { competitionId, stage: { contains: '报名' }, endAt: { gt: new Date() } },
+          orderBy: { endAt: 'asc' },
+        });
+        deadline = signup?.endAt ?? null;
+      }
+
+      return await this.prisma.team.create({
+        data: {
+          competitionId,
+          leaderId,
+          goal: input.goal,
+          neededRoles,
+          requirement: input.requirement?.trim() || null,
+          qq,
+          wechat,
+          deadline,
+          targetSize: this.normalizeTargetSize(input.targetSize),
+          members: { create: this.normalizeMembers(input.members) },
+        },
+      });
+    } finally {
+      await this.redis.unlock(lockKey);
+    }
   }
 
   async update(actorId: string, teamId: string, input: UpsertTeamInput) {
@@ -261,7 +282,8 @@ export class TeamsService {
         data: {
           ...(input.goal ? { goal: input.goal } : {}),
           ...(neededRoles ? { neededRoles } : {}),
-          ...(input.requirement !== undefined ? { requirement: input.requirement.trim() || null } : {}),
+          // requirement 允许显式 null（清空）；?.trim() 防 null 触发 TypeError
+          ...(input.requirement !== undefined ? { requirement: input.requirement?.trim() || null } : {}),
           ...(contacts !== undefined ? { qq: contacts.qq, wechat: contacts.wechat } : {}),
           ...(input.deadline !== undefined ? { deadline: input.deadline } : {}),
           ...(input.targetSize !== undefined ? { targetSize: this.normalizeTargetSize(input.targetSize) } : {}),
@@ -392,7 +414,11 @@ export class TeamsService {
     return new Map(groups.map((g) => [g.targetId, g._count._all]));
   }
 
-  /** 选择竞赛或手动填写竞赛名（二选一）；手动填写时按名称自动建档 */
+  /**
+   * 选择竞赛或手动填写竞赛名（二选一）；手动填写时按名称自动建档。
+   * 用户可无审核建档，因此新建的竞赛一律为 DRAFT（不进公开列表），并通知管理员待审核（M2）。
+   * Competition.name 有唯一索引：并发建档撞 P2002 时回退取已存在的那条。
+   */
   private async resolveCompetition(input: UpsertTeamInput): Promise<string> {
     let competitionId = input.competitionId;
     if (!competitionId && input.competitionName?.trim()) {
@@ -401,10 +427,40 @@ export class TeamsService {
       if (existing) {
         competitionId = existing.id;
       } else {
-        const created = await this.prisma.competition.create({
-          data: { name, sourceUrl: '用户手动填写', status: 'PUBLISHED' },
-        });
-        competitionId = created.id;
+        let createdId: string | undefined;
+        let freshlyCreated = false;
+        try {
+          const created = await this.prisma.competition.create({
+            data: { name, sourceUrl: '用户手动填写', status: 'DRAFT' },
+          });
+          createdId = created.id;
+          freshlyCreated = true;
+        } catch (e) {
+          // 唯一索引冲突：另一个请求刚建了同名竞赛，回退取它（对方已发过待审核通知）
+          if (e instanceof Prisma.PrismaClientKnownRequestError && e.code === 'P2002') {
+            const dup = await this.prisma.competition.findFirst({ where: { name } });
+            if (!dup) throw e;
+            createdId = dup.id;
+          } else {
+            throw e;
+          }
+        }
+        competitionId = createdId;
+
+        // 待审核：通知全体管理员（用户手动建档，未审核不进入公开列表）
+        if (freshlyCreated) {
+          const admins = await this.prisma.user.findMany({ where: { role: 'ADMIN' }, select: { id: true } });
+          await this.notify.notifyMany(
+            admins.map((a) => a.id),
+            NotificationKind.CRAWL_ANOMALY,
+            {
+              competitionId,
+              name,
+              rule: 'USER_CREATED_COMPETITION',
+              message: `用户手动建档竞赛「${name}」，当前为草稿，待审核后发布`,
+            },
+          );
+        }
       }
     }
     if (!competitionId) throw new BadRequestException('请选择竞赛或手动填写竞赛名称');

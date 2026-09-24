@@ -20,4 +20,6 @@ WORKDIR /repo/apps/api
 EXPOSE 3000
 # 首次部署 / 升级后执行迁移（本目录含 prisma/schema.prisma）：
 #   docker compose exec api npx prisma migrate deploy
-CMD ["node", "dist/main.js"]
+# 注意：tsconfig include 同时含 src 与 prisma/seed.ts，tsc 以项目根为 rootDir，
+# 因此入口产物是 dist/src/main.js（不是 dist/main.js）。
+CMD ["node", "dist/src/main.js"]

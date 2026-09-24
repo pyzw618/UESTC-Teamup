@@ -10,6 +10,19 @@ export class ApiError extends Error {
   }
 }
 
+/** 401 全局处理回调（由 stores/auth.ts 注册；client 不反向依赖 store/router，避免循环导入） */
+type UnauthorizedHandler = (path: string) => void;
+let unauthorizedHandler: UnauthorizedHandler | null = null;
+export function setUnauthorizedHandler(fn: UnauthorizedHandler | null): void {
+  unauthorizedHandler = fn;
+}
+
+/** 最近一次成功响应信封顶层的 dev 字段（如 dev 环境的验证码回显 dev.devCode）；生产环境为 undefined */
+let lastDev: Record<string, unknown> | undefined;
+export function lastDevPayload(): Record<string, unknown> | undefined {
+  return lastDev;
+}
+
 async function request<T>(path: string, options: RequestInit = {}): Promise<T> {
   const res = await fetch(`/api${path}`, {
     credentials: 'include',
@@ -25,8 +38,17 @@ async function request<T>(path: string, options: RequestInit = {}): Promise<T> {
   }
 
   if (!res.ok || !body || body.code !== 0) {
+    // 会话失效全局处理；排除 /auth/* 本身（游客 bootstrap /auth/me 与登录流程的 401 属正常业务，不应触发跳转）
+    if (res.status === 401 && unauthorizedHandler && !path.startsWith('/auth/')) {
+      try {
+        unauthorizedHandler(path);
+      } catch {
+        /* handler 异常不影响错误抛出 */
+      }
+    }
     throw new ApiError(body?.code ?? res.status, body?.message ?? `请求失败（${res.status}）`, body?.dev);
   }
+  lastDev = body.dev;
   return body.data;
 }
 

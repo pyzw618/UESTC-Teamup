@@ -105,10 +105,20 @@ export class ReportsService {
     if (action === 'delete-content') {
       if (report.targetType === 'TEAM') {
         const team = await this.prisma.team.findUnique({ where: { id: report.targetId } });
-        if (team) await this.prisma.team.delete({ where: { id: report.targetId } });
+        if (team) {
+          // Comment / Favorite 为多态关联（无外键），删除帖子时同事务清理，避免孤儿数据
+          await this.prisma.$transaction([
+            this.prisma.comment.deleteMany({ where: { targetType: 'TEAM', targetId: report.targetId } }),
+            this.prisma.favorite.deleteMany({ where: { targetType: 'TEAM', targetId: report.targetId } }),
+            this.prisma.team.delete({ where: { id: report.targetId } }),
+          ]);
+        }
       } else if (report.targetType === 'COMMENT') {
-        await this.prisma.comment.deleteMany({ where: { id: report.targetId } });
-        await this.prisma.comment.deleteMany({ where: { parentId: report.targetId } });
+        // 主评论与楼中楼回复必须同一事务删除，避免只删一半
+        await this.prisma.$transaction([
+          this.prisma.comment.deleteMany({ where: { id: report.targetId } }),
+          this.prisma.comment.deleteMany({ where: { parentId: report.targetId } }),
+        ]);
       } else if (report.targetType === 'POST') {
         await this.prisma.post.deleteMany({ where: { id: report.targetId } });
       }

@@ -1,4 +1,5 @@
 import { BadRequestException, Injectable, NotFoundException } from '@nestjs/common';
+import { UserRole } from '@teamup/shared';
 import { PrismaService } from '../../common/prisma.service';
 import { SessionService } from '../../common/auth/session.service';
 import { UserSerializer } from '../../common/auth/viewer.context';
@@ -74,10 +75,16 @@ export class UsersService {
 
       if (skills) {
         await tx.userSkill.deleteMany({ where: { userId } });
-        const valid = skills
-          .map((s) => ({ skill: s.skill.trim(), level: s.level ?? null }))
-          .filter((s) => s.skill.length > 0 && s.skill.length <= 20)
-          .slice(0, 20);
+        // M11：写入前按 trim 后的名称去重（同名保留第一个），并沿用原有的长度/数量约束
+        const seen = new Set<string>();
+        const valid: { skill: string; level: number | null }[] = [];
+        for (const s of skills) {
+          const name = s.skill.trim();
+          if (!name || name.length > 20 || seen.has(name)) continue;
+          seen.add(name);
+          valid.push({ skill: name, level: s.level ?? null });
+          if (valid.length >= 20) break;
+        }
         if (valid.length > 0) {
           await tx.userSkill.createMany({
             data: valid.map((s) => ({ userId, skill: s.skill, level: s.level })),
@@ -105,7 +112,6 @@ export class UsersService {
       major: user.major,
       bio: user.bio,
       studentNo: user.studentNo,
-      contact: user.contact,
       skills: user.skills,
       teamIds: [],
     });
@@ -180,7 +186,19 @@ export class UsersService {
   }
 
   /** 管理员：调整角色 */
-  async setRole(userId: string, role: 'STUDENT' | 'CONTRIBUTOR' | 'ADMIN') {
+  async setRole(admin: User, userId: string, role: UserRole) {
+    // H11a：管理员不能修改自己的角色（避免误操作把自己降级后无人可管理）
+    if (admin.id === userId) throw new BadRequestException('不能修改自己的角色');
+
+    const target = await this.prisma.user.findUnique({ where: { id: userId } });
+    if (!target) throw new NotFoundException('用户不存在');
+
+    // H11b：降级最后一名管理员会让系统失去管理入口
+    if (target.role === 'ADMIN' && role !== UserRole.ADMIN) {
+      const adminCount = await this.prisma.user.count({ where: { role: 'ADMIN' } });
+      if (adminCount <= 1) throw new BadRequestException('系统必须保留至少一名管理员');
+    }
+
     const user = await this.prisma.user.update({ where: { id: userId }, data: { role } });
     return { id: user.id, role: user.role };
   }

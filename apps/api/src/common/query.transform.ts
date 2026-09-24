@@ -32,10 +32,22 @@ export function TransformNumber() {
   return Transform(({ value }) => (value == null || value === '' ? undefined : Number(value)));
 }
 
+/**
+ * 查询字符串布尔兜底：true/1 → true，其余 → false。
+ *
+ * 陷阱：全局 ValidationPipe 开着 enableImplicitConversion，class-transformer 会**先**按
+ * `design:type` 做一次隐式转换再调用本回调。若字段声明为 `boolean`，字符串 "false"/"0"
+ * 会在进入回调前就被 `Boolean("false")` 变成 `true`，回调拿到的已是污染值。
+ * 因此这里优先从原始 plain object（`obj[key]`）读取未转换的值，保证声明成 `boolean`
+ * 或 `any` 行为一致。
+ */
 export function TransformBoolean() {
-  return Transform(({ value }) => {
-    if (value == null || value === '') return undefined;
-    if (typeof value === 'boolean') return value;
-    return value === 'true' || value === '1';
+  return Transform(({ value, obj, key }) => {
+    const rawSource = obj && typeof obj === 'object' ? (obj as Record<string, unknown>)[key] : value;
+    // 重复查询参数（?x=true&x=false）在 Express 中会变成数组，取最后一个为准
+    const raw = Array.isArray(rawSource) ? rawSource[rawSource.length - 1] : rawSource;
+    if (raw == null || raw === '') return undefined;
+    if (typeof raw === 'boolean') return raw;
+    return raw === 'true' || raw === '1';
   });
 }

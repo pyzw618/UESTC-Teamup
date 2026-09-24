@@ -54,8 +54,8 @@ class ResetPasswordDto {
 }
 
 function clientIp(req: Request): string {
-  const xff = req.headers['x-forwarded-for'];
-  if (typeof xff === 'string' && xff.length > 0) return xff.split(',')[0].trim();
+  // main.ts 设置了 trust proxy=1：Express 会从 X-Forwarded-For 右侧取第一个不可信地址，
+  // 直接信任 req.ip，避免客户端伪造 XFF 左侧值绕过 IP 限流。
   return req.ip ?? 'unknown';
 }
 

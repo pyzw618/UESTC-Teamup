@@ -1,23 +1,40 @@
 import { Injectable } from '@nestjs/common';
 import { CommentTarget } from '@teamup/shared';
+import { Prisma } from '@prisma/client';
 import { PrismaService } from '../../common/prisma.service';
+
+/** 唯一键冲突（并发下另一个请求已插入） */
+const isUniqueViolation = (e: unknown) =>
+  e instanceof Prisma.PrismaClientKnownRequestError && e.code === 'P2002';
+/** 目标行不存在（并发下已被另一个请求删除） */
+const isRecordNotFound = (e: unknown) =>
+  e instanceof Prisma.PrismaClientKnownRequestError && e.code === 'P2025';
 
 @Injectable()
 export class FavoritesService {
   constructor(private readonly prisma: PrismaService) {}
 
-  /** toggle：关注竞赛（=接收 DDL 提醒）或收藏 */
+  /**
+   * toggle：关注竞赛（=接收 DDL 提醒）或收藏。
+   * 联合主键天然防重，写操作直接执行并捕获 P2002 / P2025 视为幂等成功，
+   * 避免 check-then-act 竞态下并发请求 500。
+   */
   async toggle(userId: string, targetType: CommentTarget, targetId: string) {
-    const existing = await this.prisma.favorite.findUnique({
-      where: { userId_targetType_targetId: { userId, targetType, targetId } },
-    });
+    const key = { userId_targetType_targetId: { userId, targetType, targetId } };
+    const existing = await this.prisma.favorite.findUnique({ where: key });
     if (existing) {
-      await this.prisma.favorite.delete({
-        where: { userId_targetType_targetId: { userId, targetType, targetId } },
-      });
+      try {
+        await this.prisma.favorite.delete({ where: key });
+      } catch (e) {
+        if (!isRecordNotFound(e)) throw e; // 已被并发取消 → 幂等
+      }
       return { favorited: false };
     }
-    await this.prisma.favorite.create({ data: { userId, targetType, targetId } });
+    try {
+      await this.prisma.favorite.create({ data: { userId, targetType, targetId } });
+    } catch (e) {
+      if (!isUniqueViolation(e)) throw e; // 已被并发创建 → 幂等
+    }
     return { favorited: true };
   }
 

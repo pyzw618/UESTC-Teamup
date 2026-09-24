@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { ref, onMounted } from 'vue';
-import { ElMessage } from 'element-plus';
+import { ElMessage, ElMessageBox } from 'element-plus';
 import { CorrectionStatus, CorrectionStatusLabel } from '@teamup/shared';
 import { api, qs } from '../../api/client';
 import { fmtDate, type CorrectionItem } from '../../api/types';
@@ -19,6 +19,9 @@ async function load() {
     );
     items.value = res.items;
     total.value = res.total;
+  } catch (e) {
+    // H10：补 catch，接口失败不再静默/产生 unhandled rejection
+    ElMessage.error(e instanceof Error ? e.message : '纠错列表加载失败');
   } finally {
     loading.value = false;
   }
@@ -43,9 +46,25 @@ function fieldLabel(f: string) {
 }
 
 async function review(id: string, action: 'accept' | 'reject') {
-  await api.post(`/admin/corrections/${id}/review`, { action });
-  ElMessage.success(action === 'accept' ? '已采纳：值已写入，节点自动加锁，版本已记录' : '已驳回');
-  load();
+  // H10：采纳会写入字段值并加锁，加一次确认；取消直接返回，不产生 unhandled rejection
+  if (action === 'accept') {
+    try {
+      await ElMessageBox.confirm('采纳后建议值将写入该字段并自动加锁，同时记录一条版本。确认采纳？', '采纳纠错', {
+        type: 'warning',
+        confirmButtonText: '确认采纳',
+        cancelButtonText: '取消',
+      });
+    } catch {
+      return;
+    }
+  }
+  try {
+    await api.post(`/admin/corrections/${id}/review`, { action });
+    ElMessage.success(action === 'accept' ? '已采纳：值已写入，节点自动加锁，版本已记录' : '已驳回');
+  } catch (e) {
+    ElMessage.error(e instanceof Error ? e.message : '操作失败');
+  }
+  await load();
 }
 </script>
 

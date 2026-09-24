@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import { ref, onMounted } from 'vue';
 import { useRouter } from 'vue-router';
+import { ElMessage } from 'element-plus';
 import { api } from '../../api/client';
 import { fmtDate } from '../../api/types';
 import { useAuthStore } from '../../stores/auth';
@@ -28,15 +29,24 @@ onMounted(async () => {
 });
 
 async function unfav(f: (typeof favorites.value)[number]) {
-  await api.post('/favorites', { targetType: f.targetType, targetId: f.targetId });
-  favorites.value = favorites.value.filter((x) => x !== f);
+  try {
+    await api.post('/favorites', { targetType: f.targetType, targetId: f.targetId });
+    favorites.value = favorites.value.filter((x) => x !== f);
+  } catch (e) {
+    ElMessage.error(e instanceof Error ? e.message : '取消关注失败');
+  }
 }
 
 async function unfavByIndex(index: number) {
   const f = favorites.value[index];
   if (!f) return;
-  await api.post('/favorites', { targetType: f.targetType, targetId: f.targetId });
-  favorites.value.splice(index, 1);
+  try {
+    await api.post('/favorites', { targetType: f.targetType, targetId: f.targetId });
+    favorites.value.splice(index, 1);
+  } catch (e) {
+    // M18：失败要提示，且列表保持原样（不能先删后请求）
+    ElMessage.error(e instanceof Error ? e.message : '取消关注失败');
+  }
 }
 
 // 关注竞赛 = 接收 DDL 提醒（PAGES.md §4.3）

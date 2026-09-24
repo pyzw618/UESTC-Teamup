@@ -34,6 +34,9 @@ async function load() {
     );
     items.value = res.items;
     total.value = res.total;
+  } catch (e) {
+    // H10：补 catch
+    ElMessage.error(e instanceof Error ? e.message : '举报列表加载失败');
   } finally {
     loading.value = false;
   }
@@ -43,15 +46,23 @@ onMounted(load);
 async function handle(row: (typeof items.value)[number], action: 'dismiss' | 'delete-content') {
   if (action === 'delete-content') {
     const label = row.targetType === 'TEAM' ? `组队帖「${row.team?.name || ''}」` : '被举报内容';
-    await ElMessageBox.confirm(
-      `将删除${label}（级联删除其成员与申请记录），该操作不可恢复。确认？`,
-      '删除内容',
-      { type: 'warning', confirmButtonText: '确认删除', cancelButtonText: '取消' },
-    );
+    try {
+      await ElMessageBox.confirm(
+        `将删除${label}（级联删除其成员与申请记录），该操作不可恢复。确认？`,
+        '删除内容',
+        { type: 'warning', confirmButtonText: '确认删除', cancelButtonText: '取消' },
+      );
+    } catch {
+      return; // H10：用户取消 / 关闭弹窗
+    }
   }
-  await api.post(`/admin/reports/${row.id}/${action === 'dismiss' ? 'handle' : 'delete-content'}`);
-  ElMessage.success(action === 'dismiss' ? '已驳回该举报' : '内容已删除');
-  load();
+  try {
+    await api.post(`/admin/reports/${row.id}/${action === 'dismiss' ? 'handle' : 'delete-content'}`);
+    ElMessage.success(action === 'dismiss' ? '已驳回该举报' : '内容已删除');
+  } catch (e) {
+    ElMessage.error(e instanceof Error ? e.message : '操作失败');
+  }
+  await load();
 }
 </script>
 

@@ -23,7 +23,11 @@ services:
   redis:
     image: redis:7-alpine
     restart: unless-stopped
-    command: ["redis-server", "--maxmemory", "48mb", "--maxmemory-policy", "allkeys-lru", "--appendonly", "no"]
+    # M4：maxmemory-policy 用 volatile-lru 而非 allkeys-lru。
+    # 本项目写入 Redis 的键（session / 验证码 / 限流计数）均带 TTL，allkeys-lru 在内存
+    # 打满时会无差别逐出，包括无 TTL 的键与尚未过期的会话，表现为「随机登出」「限流计数
+    # 被重置」；volatile-lru 只在带过期时间的键中淘汰，语义与使用方式一致。
+    command: ["redis-server", "--maxmemory", "48mb", "--maxmemory-policy", "volatile-lru", "--appendonly", "no"]
     healthcheck:
       test: ["CMD", "redis-cli", "ping"]
       interval: 10s
@@ -44,11 +48,23 @@ services:
       NODE_ENV: production
       DATABASE_URL: postgresql://teamup:${POSTGRES_PASSWORD}@db:5432/teamup
       REDIS_URL: redis://redis:6379
-      COOKIE_SECRET: ${COOKIE_SECRET:?请在 .env 中设置}
+      # L12：后端 CORS 白名单读该变量，未设置时线上会恒回退 localhost，导致跨域请求被拒。
+      # 生产请设为真实对外域名（如 https://teamup.example.edu.cn）
+      WEB_ORIGIN: ${WEB_ORIGIN:-http://localhost:5173}
+      # S2b：仅当前置层已启用 HTTPS 时设为 true（后端已改为读取该变量控制 cookie Secure 标志；
+      # nginx 当前仅监听 80，保持 false 否则浏览器会拒收 cookie 导致登录失效）
+      COOKIE_SECURE: ${COOKIE_SECURE:-false}
+      # 【阶段措施】当前阶段不实装真实发信，故默认走 console：验证码只写入服务端日志
+      # （见 ConsoleDevProvider），管理员可从日志取码代发。后端不再因此拒绝启动。
+      # ⚠️ 此模式下日志访问权限等同账号登录权限：生产日志必须按凭据级别管控，勿接入第三方日志平台。
+      # 正式上线前请实装 SMTP 并改 MAIL_PROVIDER=qq（下方 QQ_SMTP_* 全部填写；
+      # 个人邮箱有每日发信限额，上线前实测送达率）。
       MAIL_PROVIDER: ${MAIL_PROVIDER:-console}
+      # QQ 邮箱 SMTP（读取自 apps/api/src/modules/mail/qq-smtp.provider.ts / mail.module.ts）
       QQ_SMTP_HOST: ${QQ_SMTP_HOST:-}
       QQ_SMTP_PORT: ${QQ_SMTP_PORT:-465}
       QQ_SMTP_USER: ${QQ_SMTP_USER:-}
+      # 16 位 SMTP 授权码（非邮箱登录密码）
       QQ_SMTP_PASS: ${QQ_SMTP_PASS:-}
     # 2C2G 内存预算：API ~250MB
     deploy:

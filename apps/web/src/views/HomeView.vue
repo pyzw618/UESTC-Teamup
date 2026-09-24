@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import { ref, onMounted } from 'vue';
 import { useRouter } from 'vue-router';
+import dayjs from 'dayjs';
 import { api } from '../api/client';
 import { daysLeft, fmtDate, type CompetitionListItem, type TeamListItem, type TimelineNode } from '../api/types';
 import LevelChips from '../components/LevelChips.vue';
@@ -21,22 +22,26 @@ const home = ref<{
 } | null>(null);
 const miniMonth = ref<TimelineNode[]>([]);
 const loading = ref(true);
+const loadError = ref(false);
 
 onMounted(async () => {
   try {
-    const now = new Date();
-    const monthStart = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}-01`;
-    const monthEnd = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}-${new Date(now.getFullYear(), now.getMonth() + 1, 0).getDate()}`;
+    // M9：用 dayjs 按本地时区计算当月边界，避免 new Date("YYYY-MM-DD") 按 UTC 解析
+    // 导致东八区当月最后一天 08:00 后节点被过滤的问题
+    const monthStart = dayjs().startOf('month');
+    const monthEnd = dayjs().endOf('month');
     const [h, month] = await Promise.all([
       api.get<NonNullable<typeof home.value>>('/home'),
-      api.get<TimelineNode[]>(`/calendar?start=${monthStart}&end=${monthEnd}`),
+      api.get<TimelineNode[]>(`/calendar?start=${monthStart.format('YYYY-MM-DD')}&end=${monthEnd.format('YYYY-MM-DD')}`),
     ]);
     home.value = h;
     miniMonth.value = (month || []).filter((t) => {
-      const s = t.startAt ? new Date(t.startAt) : null;
-      const e = t.endAt ? new Date(t.endAt) : null;
-      return (s && s <= new Date(monthEnd) && s >= new Date(monthStart)) || (e && e <= new Date(monthEnd) && e >= new Date(monthStart));
+      const s = t.startAt ? dayjs(t.startAt) : null;
+      const e = t.endAt ? dayjs(t.endAt) : null;
+      return (s && !s.isAfter(monthEnd) && !s.isBefore(monthStart)) || (e && !e.isAfter(monthEnd) && !e.isBefore(monthStart));
     });
+  } catch {
+    loadError.value = true;
   } finally {
     loading.value = false;
   }
@@ -48,6 +53,10 @@ const levelEntries = [
   { key: Level.PROVINCIAL, color: '#D99F00', label: '省级' },
   { key: Level.SCHOOL, color: '#2C7355', label: '校级' },
 ];
+
+function reload() {
+  window.location.reload();
+}
 </script>
 
 <template>
@@ -104,6 +113,12 @@ const levelEntries = [
 
     <div v-if="loading" class="grid grid-cols-1 md:grid-cols-3 gap-16px mt-8px">
       <div v-for="i in 6" :key="i" class="skeleton h-150px"></div>
+    </div>
+
+    <div v-else-if="loadError" class="glass p-22px mt-8px">
+      <el-empty description="首页数据加载失败，请检查网络后重试" :image-size="70">
+        <el-button type="primary" round @click="reload">重新加载</el-button>
+      </el-empty>
     </div>
 
     <div v-else class="stagger flex flex-col gap-18px">

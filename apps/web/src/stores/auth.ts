@@ -1,6 +1,6 @@
 import { defineStore } from 'pinia';
 import { ref, computed } from 'vue';
-import { api } from '../api/client';
+import { api, setUnauthorizedHandler } from '../api/client';
 
 export interface MeUser {
   id: string;
@@ -41,9 +41,30 @@ export const useAuthStore = defineStore('auth', () => {
   }
 
   async function logout() {
-    await api.post('/auth/logout');
-    user.value = null;
+    // M8：接口失败也要清本地登录态，保证"永远能登出"
+    try {
+      await api.post('/auth/logout');
+    } catch {
+      /* 忽略：会话可能已失效 */
+    } finally {
+      user.value = null;
+    }
   }
 
   return { user, loaded, isLoggedIn, isAdmin, bootstrap, refresh, logout };
+});
+
+// M7：全局 401 处理（回调注册模式，client.ts 不依赖 store/router）。
+// /auth/* 的 401（游客 bootstrap、登录流程）已在 client 侧排除，不会误伤登录页。
+setUnauthorizedHandler(() => {
+  try {
+    const auth = useAuthStore();
+    auth.user = null;
+  } catch {
+    /* pinia 尚未就绪时仅做跳转 */
+  }
+  const { pathname, search } = window.location;
+  if (!pathname.startsWith('/login')) {
+    window.location.href = `/login?redirect=${encodeURIComponent(pathname + search)}`;
+  }
 });

@@ -45,7 +45,11 @@ void refreshUnread();
 setInterval(refreshUnread, 30_000);
 
 async function doLogout() {
-  await auth.logout();
+  try {
+    await auth.logout();
+  } catch {
+    /* store 内部已兜底清登录态，此处仅防 unhandled rejection */
+  }
   router.push({ name: 'home' });
 }
 </script>

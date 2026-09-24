@@ -5,6 +5,12 @@
  * 3. 演示用户与招募中队伍：保证首屏不空
  *
  * 运行：pnpm db:seed
+ *
+ * 环境变量：
+ * - SEED_ADMIN_PASSWORD：管理员账号初始密码（管理员与测试用户共用）。未设置时两者都不写入
+ *   passwordHash，只能用邮箱验证码登录后再到「个人中心」设置密码。
+ * - ALLOW_PROD_SEED：该脚本会清空全库，NODE_ENV=production 时默认拒绝执行，
+ *   确需在生产执行须显式设置 ALLOW_PROD_SEED=true。
  */
 import { readFileSync } from 'fs';
 import { join } from 'path';
@@ -324,10 +330,9 @@ const EXTRA_COMPETITIONS: {
 
 const DEMO_USERS = [
   {
-    // 管理员（可用密码 123456789 登录，登录后进入后台）
+    // 管理员（登录后进入后台）。初始密码取自环境变量 SEED_ADMIN_PASSWORD，未设置则无密码
     email: '2024080909015@std.uestc.edu.cn',
     studentNo: '2024080909015',
-    password: '123456789',
     nickname: '雷达站长',
     college: '信息与通信工程学院',
     grade: 2024,
@@ -337,10 +342,9 @@ const DEMO_USERS = [
     skills: [['嵌入式', 4], ['组织协调', 3]] as [string, number][],
   },
   {
-    // 测试用户（可用密码 123456789 登录）
+    // 测试用户。初始密码同样取自 SEED_ADMIN_PASSWORD；未设置则走验证码登录
     email: '2024080909000@std.uestc.edu.cn',
     studentNo: '2024080909000',
-    password: '123456789',
     nickname: '测试同学',
     college: '信息与通信工程学院',
     grade: 2024,
@@ -392,6 +396,20 @@ const DEMO_USERS = [
 ];
 
 async function main() {
+  // S6a：生产防护 —— 该脚本第一步就清空全库，禁止在生产误执行
+  if (process.env.NODE_ENV === 'production' && process.env.ALLOW_PROD_SEED !== 'true') {
+    throw new Error('禁止在生产环境执行 seed：该脚本会清空全库数据');
+  }
+
+  // S6b：管理员初始密码不再硬编码，取自环境变量；未设置则不写 passwordHash
+  // （schema 中 User.passwordHash 可空，支持纯验证码登录）
+  const adminPassword = process.env.SEED_ADMIN_PASSWORD;
+  if (!adminPassword) {
+    console.warn(
+      '未设置 SEED_ADMIN_PASSWORD：演示用户（含管理员）将不写入密码，请用邮箱验证码登录后在「个人中心」设置密码。',
+    );
+  }
+
   const bonusFile: BonusFile = JSON.parse(
     readFileSync(join(__dirname, 'bonus-list.json'), 'utf-8'),
   );
@@ -430,7 +448,7 @@ async function main() {
         major: u.major,
         role: u.role ?? 'STUDENT',
         bio: u.bio ?? null,
-        passwordHash: u.password ? hashPassword(u.password) : null,
+        passwordHash: adminPassword ? hashPassword(adminPassword) : null,
         skills: { create: u.skills.map(([skill, level]) => ({ skill, level })) },
       },
     });

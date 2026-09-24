@@ -90,6 +90,9 @@ const dayNodes = computed(() => {
 onMounted(async () => {
   try {
     allEvents.value = await api.get<TimelineNode[]>('/calendar');
+  } catch (e) {
+    // H10：原来只有 try/finally，日历接口失败即 unhandled rejection 且页面空白无提示
+    ElMessage.error(e instanceof Error ? e.message : '日历数据加载失败，请稍后重试');
   } finally {
     loading.value = false;
   }

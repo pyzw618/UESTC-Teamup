@@ -34,6 +34,9 @@ async function load() {
     );
     items.value = res.items;
     total.value = res.total;
+  } catch (e) {
+    // H10：补 catch
+    ElMessage.error(e instanceof Error ? e.message : '竞赛列表加载失败');
   } finally {
     loading.value = false;
   }
@@ -41,10 +44,18 @@ async function load() {
 onMounted(load);
 
 async function archive(id: string) {
-  await ElMessageBox.confirm('下线后用户端不再展示，确定？', '下线竞赛', { type: 'warning' });
-  await api.delete(`/admin/competitions/${id}`);
-  ElMessage.success('已下线');
-  load();
+  try {
+    await ElMessageBox.confirm('下线后用户端不再展示，确定？', '下线竞赛', { type: 'warning' });
+  } catch {
+    return; // H10：用户取消 / 关闭弹窗
+  }
+  try {
+    await api.delete(`/admin/competitions/${id}`);
+    ElMessage.success('已下线');
+  } catch (e) {
+    ElMessage.error(e instanceof Error ? e.message : '下线失败');
+  }
+  await load();
 }
 
 const statusLabel = (s: string) => PublishStatusLabel[s as PublishStatus] ?? s;

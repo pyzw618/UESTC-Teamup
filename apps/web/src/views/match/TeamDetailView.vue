@@ -2,9 +2,10 @@
 import { ref, computed, onMounted } from 'vue';
 import { useRoute, useRouter } from 'vue-router';
 import { ElMessage, ElMessageBox } from 'element-plus';
-import { RoleType, RoleTypeLabel, TeamGoal, TeamGoalLabel, TeamStatusLabel, TeamStatus } from '@teamup/shared';
+import { RoleType, RoleTypeLabel, TeamGoal, TeamGoalLabel, TeamStatus, TeamStatusLabel } from '@teamup/shared';
 import { api } from '../../api/client';
 import { fmtDate, daysLeft, type TeamDetail } from '../../api/types';
+import { safeHref } from '../../utils/safeHref';
 import FrostedGate from '../../components/FrostedGate.vue';
 import CommentList from '../../components/CommentList.vue';
 import UserAvatar from '../../components/UserAvatar.vue';
@@ -26,6 +27,18 @@ const remaining = computed(() => {
 const expired = computed(() => !!team.value?.expired);
 
 const statusText = computed(() => TeamStatusLabel[team.value?.status as TeamStatus] ?? '');
+
+/**
+ * M15：写操作按钮只由 viewer.isLeader 控制。
+ * 管理员（viewer.isAdmin）在队伍详情页没有编辑/解散权限——后端会返回 403，
+ * 所以前端不能给管理员渲染编辑控件（原来渲染了但点下去全 403）。
+ * isAdmin 只用于显示「管理员视角」提示。
+ */
+const isLeaderViewer = computed(() => !!team.value?.viewer?.isLeader);
+const isAdminViewer = computed(() => !!team.value?.viewer?.isAdmin && !isLeaderViewer.value);
+
+/** competition.officialUrl 来自采集，走协议白名单后再绑定 */
+const competitionUrl = computed(() => safeHref(team.value?.competition?.officialUrl));
 
 const statusClass = computed(() => {
   switch (team.value?.status) {
@@ -67,13 +80,21 @@ const STATUS_CONFIRM: Record<string, { tip: string; type: 'warning' | 'info' }> 
 
 async function changeStatus(status: TeamStatus) {
   const confirm = STATUS_CONFIRM[status];
-  await ElMessageBox.confirm(confirm.tip, `确认切换为「${TeamStatusLabel[status]}」？`, { type: confirm.type });
+  // H10：ElMessageBox 在用户点「取消」时是 reject（'cancel'），没有外层 catch
+  // 就是 unhandled rejection；叉掉弹窗同样走 close 分支。
+  try {
+    await ElMessageBox.confirm(confirm.tip, `确认切换为「${TeamStatusLabel[status]}」？`, { type: confirm.type });
+  } catch {
+    return;
+  }
   try {
     await api.post(`/teams/${team.value!.id}/status`, { status });
     ElMessage.success('状态已更新');
-    load();
+    await load();
   } catch (e) {
     ElMessage.error(e instanceof Error ? e.message : '操作失败');
+    // 失败后回到服务端真实状态，避免本地视图与后端不一致
+    await load();
   }
 }
 
@@ -138,14 +159,19 @@ async function submitEdit() {
   }
   editSaving.value = true;
   try {
+    /**
+     * M10：PATCH 语义是「字段缺省 = 不更新」。
+     * 原来 `qq: '' || undefined` 让空串从 JSON 里消失，队长永远删不掉已填的联系方式/截止日。
+     * 后端契约：显式传 null 表示清空（targetSize 同样支持 null）。
+     */
     await api.patch(`/teams/${team.value!.id}`, {
       goal: editForm.value.goal,
       neededRoles: editForm.value.neededRoles,
-      requirement: editForm.value.requirement,
-      qq: editForm.value.qq.trim() || undefined,
-      wechat: editForm.value.wechat.trim() || undefined,
-      deadline: editForm.value.deadline || undefined,
-      targetSize: editForm.value.targetSize ?? undefined,
+      requirement: editForm.value.requirement || null,
+      qq: editForm.value.qq.trim() || null,
+      wechat: editForm.value.wechat.trim() || null,
+      deadline: editForm.value.deadline || null,
+      targetSize: editForm.value.targetSize ?? null,
       members: editForm.value.members.map((m) => ({
         grade: m.grade ?? undefined,
         college: m.college || undefined,
@@ -156,9 +182,11 @@ async function submitEdit() {
     });
     editVisible.value = false;
     ElMessage.success('帖子已更新');
-    load();
+    await load();
   } catch (e) {
     ElMessage.error(e instanceof Error ? e.message : '保存失败');
+    // H10：保存失败（含后端 403/409 契约校验）时刷新，避免弹窗里的本地值被当成已生效
+    await load();
   } finally {
     editSaving.value = false;
   }
@@ -207,6 +235,13 @@ async function submitEdit() {
               class="text-18px font-bold color-uestc-600 cursor-pointer hover:underline"
               @click="router.push(`/competitions/${team.competition.id}`)"
             >{{ team.competition.name }}</div>
+            <a
+              v-if="competitionUrl !== '#'"
+              :href="competitionUrl"
+              target="_blank"
+              rel="noopener noreferrer"
+              class="text-12px color-uestc-500"
+            >竞赛官网 ↗</a>
             <router-link :to="`/u/${team.leader.id}`" class="leader-line">
               <UserAvatar :name="team.leader.nickname || team.leader.college || 'U'" :size="26" />
               <span class="text-13px color-ink-soft">发布者 <b class="color-ink">{{ team.leader.nickname || '同学' }}</b></span>
@@ -216,7 +251,7 @@ async function submitEdit() {
             </div>
           </div>
           <div class="flex gap-8px shrink-0 flex-wrap justify-end">
-            <template v-if="team.viewer?.isLeader">
+            <template v-if="isLeaderViewer">
               <el-button round @click="openEdit" :disabled="team.status === 'DISBANDED'">编辑帖子</el-button>
               <el-button
                 v-for="s in statusActions"
@@ -227,6 +262,11 @@ async function submitEdit() {
                 @click="changeStatus(s)"
               >{{ statusActionLabel(s) }}</el-button>
             </template>
+            <span
+              v-else-if="isAdminViewer"
+              class="text-12px color-ink-faint self-center"
+              title="管理操作请前往后台举报/内容管理台"
+            >管理员视角（只读）</span>
           </div>
         </div>
       </section>

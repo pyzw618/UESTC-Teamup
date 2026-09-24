@@ -172,15 +172,24 @@ export class AdminService {
   }
 
   async archiveCompetition(id: string) {
+    const existing = await this.prisma.competition.findUnique({ where: { id }, select: { id: true } });
+    if (!existing) throw new NotFoundException('竞赛不存在');
     await this.prisma.competition.update({ where: { id }, data: { status: PublishStatus.ARCHIVED } });
     return { archived: true };
   }
 
-  /** 管理员删除组队帖（硬删除，级联清理成员/申请/邀请） */
+  /**
+   * 管理员删除组队帖（硬删除）。
+   * TeamMember 由外键级联清理；Comment / Favorite 是多态关联（无外键），需同事务手工清理，避免孤儿数据。
+   */
   async deleteTeam(id: string) {
     const team = await this.prisma.team.findUnique({ where: { id }, select: { id: true, competition: { select: { name: true } } } });
     if (!team) throw new NotFoundException('组队帖不存在');
-    await this.prisma.team.delete({ where: { id } });
+    await this.prisma.$transaction([
+      this.prisma.comment.deleteMany({ where: { targetType: 'TEAM', targetId: id } }),
+      this.prisma.favorite.deleteMany({ where: { targetType: 'TEAM', targetId: id } }),
+      this.prisma.team.delete({ where: { id } }),
+    ]);
     return { deleted: true, name: team.competition.name };
   }
 
@@ -211,12 +220,18 @@ export class AdminService {
     };
   }
 
-  /** 管理台列表项复用公开筛选（绕过 PUBLISHED 限制的简化版） */
+  /** 管理台详情：levels / tags 需摊平成字符串数组（与前端表单契约一致，timelines 保持对象结构） */
   async adminDetail(id: string) {
-    return this.prisma.competition.findUnique({
+    const row = await this.prisma.competition.findUnique({
       where: { id },
       include: { levels: true, tags: true, timelines: true },
     });
+    if (!row) return null;
+    return {
+      ...row,
+      levels: row.levels.map((l) => l.level),
+      tags: row.tags.map((t) => t.tag),
+    };
   }
 
   // ---------- 纠错处理 ----------
@@ -252,6 +267,9 @@ export class AdminService {
     if (report.proposedValue == null) throw new BadRequestException('该纠错未提供建议值，无法采纳');
 
     const [head, timelineId, tlField] = report.field.split(':');
+
+    // 纵深防御：URL 类字段采纳前再次校验 scheme（历史数据可能已污染，防 javascript: 存储型 XSS）
+    if (URL_FIELDS.has(head)) assertHttpUrl(report.proposedValue);
 
     await this.prisma.$transaction(async (tx) => {
       if (head === 'timeline' && timelineId) {
@@ -377,3 +395,12 @@ export class AdminService {
 }
 
 const CORRECTABLE_SIMPLE = new Set(['name', 'organizer', 'officialUrl', 'intro', 'bonusCategory', 'bonusPoints']);
+
+/** URL 类字段：采纳写入前必须校验 scheme，只允许 http/https */
+const URL_FIELDS = new Set(['officialUrl', 'sourceUrl']);
+
+function assertHttpUrl(value: string) {
+  if (!/^https?:\/\//i.test(value.trim())) {
+    throw new BadRequestException('链接必须以 http:// 或 https:// 开头');
+  }
+}

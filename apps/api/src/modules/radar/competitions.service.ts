@@ -24,11 +24,21 @@ const listInclude = {
 
 type ListRow = Prisma.CompetitionGetPayload<{ include: typeof listInclude }>;
 
+/** 报名截止：时间轴里最近一个「报名」节点的 endAt（须在未来） */
+export function nextSignupDeadline(
+  timelines: { stage: string | null; endAt: Date | null }[],
+  now = new Date(),
+): Date | null {
+  return (
+    timelines
+      .filter((t) => (t.stage ?? '').includes('报名') && t.endAt && t.endAt > now)
+      .sort((a, b) => a.endAt!.getTime() - b.endAt!.getTime())[0]?.endAt ?? null
+  );
+}
+
 /** 给列表项附加计算字段 */
 export function decorateListItem(row: ListRow, now = new Date()) {
-  const nextDeadline = row.timelines
-    .filter((t) => (t.stage ?? '').includes('报名') && t.endAt && t.endAt > now)
-    .sort((a, b) => (a.endAt!.getTime() ?? 0) - (b.endAt!.getTime() ?? 0))[0];
+  const nextDeadline = nextSignupDeadline(row.timelines, now);
 
   const hasFuture = row.timelines.some((t) => (t.endAt && t.endAt > now) || (t.startAt && t.startAt > now));
   const hasAny = row.timelines.length > 0;
@@ -48,7 +58,7 @@ export function decorateListItem(row: ListRow, now = new Date()) {
     levels: row.levels.map((l) => l.level),
     tags: row.tags.map((t) => t.tag),
     recruitingTeams: row._count.teams,
-    nextDeadline: nextDeadline?.endAt ?? null,
+    nextDeadline,
     status,
     updatedAt: row.updatedAt,
   };
@@ -84,6 +94,11 @@ export class CompetitionsService {
       else if (query.status === 'ENDED') where.AND = [allPast];
     }
 
+    // DEADLINE 排序键是时间轴派生值，数据库排不了：
+    // 全量取候选 → 内存算 nextDeadline / 过滤 / 排序 → 按页切片 → 仅对当页批量取完整数据。
+    // 竞赛总量百级，全量可接受；保证 total 与 items 一致、跨页顺序稳定、页码可用。
+    if (query.sort === 'DEADLINE') return this.listByDeadline(query, where, now);
+
     const orderBy: Prisma.CompetitionOrderByWithRelationInput[] = [];
     switch (query.sort) {
       case 'DIFFICULTY':
@@ -92,8 +107,6 @@ export class CompetitionsService {
       case 'HOT':
         orderBy.push({ teams: { _count: 'desc' } });
         break;
-      case 'DEADLINE':
-        break; // 内存中按 nextDeadline 排
       default:
         orderBy.push({ updatedAt: 'desc' });
     }
@@ -104,18 +117,47 @@ export class CompetitionsService {
         include: listInclude,
         orderBy: orderBy.length ? orderBy : [{ updatedAt: 'desc' }],
         skip: (query.page - 1) * query.pageSize,
-        take: query.pageSize * 4, // DEADLINE 排序需要多一点候选
+        take: query.pageSize,
       }),
       this.prisma.competition.count({ where }),
     ]);
 
-    let items = rows.map((r) => decorateListItem(r, now));
-    if (query.sort === 'DEADLINE') {
-      items = items
-        .filter((i) => i.nextDeadline)
-        .sort((a, b) => a.nextDeadline!.getTime() - b.nextDeadline!.getTime())
-        .slice(0, query.pageSize);
-    }
+    return {
+      items: rows.map((r) => decorateListItem(r, now)),
+      total,
+      page: query.page,
+      pageSize: query.pageSize,
+    };
+  }
+
+  /** 报名截止升序分页：total 与 items 同源（都基于过滤后的 nextDeadline 集合） */
+  private async listByDeadline(
+    query: ListCompetitionsQuery,
+    where: Prisma.CompetitionWhereInput,
+    now: Date,
+  ) {
+    const candidates = await this.prisma.competition.findMany({
+      where,
+      select: { id: true, timelines: { select: { stage: true, endAt: true } } },
+    });
+
+    const ranked = candidates
+      .map((c) => ({ id: c.id, nextDeadline: nextSignupDeadline(c.timelines, now) }))
+      .filter((c): c is { id: string; nextDeadline: Date } => c.nextDeadline != null)
+      .sort((a, b) => a.nextDeadline.getTime() - b.nextDeadline.getTime());
+
+    const total = ranked.length;
+    const pageIds = ranked
+      .slice((query.page - 1) * query.pageSize, query.page * query.pageSize)
+      .map((c) => c.id);
+
+    const rows = pageIds.length
+      ? await this.prisma.competition.findMany({ where: { id: { in: pageIds } }, include: listInclude })
+      : [];
+    const order = new Map(pageIds.map((id, i) => [id, i]));
+    const items = rows
+      .sort((a, b) => order.get(a.id)! - order.get(b.id)!)
+      .map((r) => decorateListItem(r, now));
 
     return { items, total, page: query.page, pageSize: query.pageSize };
   }

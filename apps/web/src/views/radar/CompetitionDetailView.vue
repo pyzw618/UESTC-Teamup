@@ -5,6 +5,7 @@ import { ElMessage } from 'element-plus';
 import { AudienceLabel, CompetitionFormatLabel, Audience, CompetitionFormat } from '@teamup/shared';
 import { api, qs } from '../../api/client';
 import { fmtDate, daysLeft, type CompetitionDetail, type TeamSummary } from '../../api/types';
+import { safeHref, hrefHost } from '../../utils/safeHref';
 import LevelChips from '../../components/LevelChips.vue';
 import TeamCardMeta from '../../components/TeamCardMeta.vue';
 import CommentList from '../../components/CommentList.vue';
@@ -32,6 +33,18 @@ const recruitingTeamsCount = ref(0);
 const nextDeadline = computed(() => {
   const signup = comp.value?.timelines.filter((t) => (t.stage || '').includes('报名') && t.endAt).sort((a, b) => new Date(a.endAt!).getTime() - new Date(b.endAt!).getTime());
   return signup?.[0]?.endAt ?? null;
+});
+
+/**
+ * M9：daysLeft 改为日历天差后必须三分支处理。
+ * 原实现 `daysLeft(...)! > 0 ? 剩 N 天 : '今日截止'` 会把已过期（负数）误显示成「今日截止」。
+ */
+const deadlineChipText = computed(() => {
+  const d = daysLeft(nextDeadline.value);
+  if (d == null) return '';
+  if (d > 0) return `剩 ${d} 天`;
+  if (d === 0) return '今日截止';
+  return '已截止';
 });
 
 const nowNodes = computed(() => {
@@ -73,12 +86,17 @@ async function toggleFavorite() {
     router.push({ name: 'login', query: { redirect: route.fullPath } });
     return;
   }
-  const res = await api.post<{ favorited: boolean }>('/favorites', {
-    targetType: 'COMPETITION',
-    targetId: comp.value!.id,
-  });
-  favorite.value = res.favorited;
-  ElMessage.success(res.favorited ? '已关注，DDL 前 7/3/1 天会提醒你' : '已取消关注');
+  // H10：关注/取关失败（网络/限流）不能变成 unhandled rejection
+  try {
+    const res = await api.post<{ favorited: boolean }>('/favorites', {
+      targetType: 'COMPETITION',
+      targetId: comp.value!.id,
+    });
+    favorite.value = res.favorited;
+    ElMessage.success(res.favorited ? '已关注，DDL 前 7/3/1 天会提醒你' : '已取消关注');
+  } catch (e) {
+    ElMessage.error(e instanceof Error ? e.message : '操作失败，请稍后重试');
+  }
 }
 
 function openCorrection(field: string, label: string, current?: string | null) {
@@ -131,7 +149,7 @@ async function submitCorrection() {
             <div class="flex items-center gap-8px flex-wrap mb-8px">
               <LevelChips :levels="comp.levels" />
               <span v-if="nextDeadline" class="chip" style="background: rgba(15,76,140,0.07); color: var(--uestc-blue)">
-                ⏳ {{ daysLeft(nextDeadline)! > 0 ? `剩 ${daysLeft(nextDeadline)} 天` : '今日截止' }}
+                ⏳ {{ deadlineChipText }}
               </span>
             </div>
             <h1 class="text-24px md:text-28px font-extrabold m-0 color-ink leading-tight">{{ comp.name }}</h1>
@@ -149,8 +167,8 @@ async function submitCorrection() {
         </div>
         <div class="text-12px color-ink-faint mt-12px">
           最后更新 {{ fmtDate(comp.updatedAt, true) }}
-          <template v-if="comp.sourceUrl">
-            · 信息来源：<a :href="comp.sourceUrl" target="_blank" rel="noopener" class="color-uestc-500">{{ comp.sourceUrl.replace(/^https?:\/\//, '').split('/')[0] }} ↗</a>
+          <template v-if="comp.sourceUrl && hrefHost(comp.sourceUrl)">
+            · 信息来源：<a :href="safeHref(comp.sourceUrl)" target="_blank" rel="noopener noreferrer" class="color-uestc-500">{{ hrefHost(comp.sourceUrl) }} ↗</a>
           </template>
         </div>
       </section>
@@ -163,7 +181,7 @@ async function submitCorrection() {
             <span class="info-label">主办方</span><span class="color-ink">{{ comp.organizer || '—' }}</span>
             <span class="info-label">官网</span>
             <span class="color-ink">
-              <a v-if="comp.officialUrl" :href="comp.officialUrl" target="_blank" rel="noopener" class="color-uestc-500">访问官网 ↗</a>
+              <a v-if="comp.officialUrl && safeHref(comp.officialUrl) !== '#'" :href="safeHref(comp.officialUrl)" target="_blank" rel="noopener noreferrer" class="color-uestc-500">访问官网 ↗</a>
               <template v-else>—</template>
             </span>
             <span class="info-label">赛制</span>
@@ -295,9 +313,9 @@ async function submitCorrection() {
           <a
             v-for="m in comp.materials"
             :key="m.id"
-            :href="m.url"
+            :href="safeHref(m.url)"
             target="_blank"
-            rel="noopener"
+            rel="noopener noreferrer"
             class="block text-13px color-ink-soft py-6px no-underline hover:text-uestc-500 truncate"
           >
             📄 {{ m.title }}

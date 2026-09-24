@@ -37,6 +37,8 @@ async function searchCompetition(word: string) {
   try {
     const res = await api.get<{ competitions: { id: string; name: string }[] }>(`/search${qs({ q: word })}`);
     competitionOptions.value = res.competitions;
+  } catch {
+    /* 搜索失败保持原有选项，不打断输入 */
   } finally {
     competitionSearching.value = false;
   }
@@ -65,6 +67,9 @@ async function load() {
     );
     items.value = res.items;
     total.value = res.total;
+  } catch (e) {
+    // H10：原来只有 try/finally，接口失败即 unhandled rejection 且列表无任何反馈
+    ElMessage.error(e instanceof Error ? e.message : '招募帖加载失败，请稍后重试');
   } finally {
     loading.value = false;
   }

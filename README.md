@@ -18,7 +18,7 @@
 解决两个校园痛点：**竞赛信息支离破碎**（靠 QQ 群口口相传、容易错过 DDL），以及**论坛组队低效**（帖子沉底、状态不更新）。
 
 - **竞赛雷达**：结构化竞赛档案 + 日历视图，「只看能加分的比赛」一键筛选
-- **队友匹配**：结构化组队卡 + 队伍状态机 + 申请审批流，把沟通沉淀在站内
+- **队友匹配**：结构化组队卡 + 队伍状态机，「广告牌」式公开招募（联系方式公开）
 - 差异化护城河：**推免加分是独立字段**——级别回答「比赛多大」，加分回答「对我保研有没有用」（56 项认定清单源自校教学文件，随种子数据入库）
 
 ---
@@ -51,12 +51,12 @@
 
 - 组队卡「广告牌模式」，队伍状态机四态：招募中 / 已满员 / 已参赛 / 已解散
 - `joinTeam` 原子事务 + 数据库不变量约束，杜绝超员 / 竞态
-- **半匿名规则**（服务端序列化裁剪，前端不藏字段）：陌生人只见昵称 / 学院 / 年级 / 专业 / 技能；同队成员与管理员解锁学号与联系方式；联系方式仅在入队申请通过后可见
-- 招募信息仅登录可见，游客看到整块磨砂玻璃引导
+- **广告牌招募模式（信息如实公开）**：平台不做申请 / 邀请 / 审批 / 私聊，招募帖即广告牌。注册用户（含可访问名片页的游客）可见发布者的学号与联系方式——**注册即视为同意公开这些信息**；相关接口已加防爬限流，请勿批量抓取
+- 发布招募帖需登录；游客可浏览竞赛雷达与公开的名片 / 招募信息
 
 **平台能力**
 
-- 双登录：邮箱验证码（首次即注册）+ 密码；dev 模式验证码打印到后端控制台并随响应回显
+- 双登录：邮箱验证码（首次即注册）+ 密码。⚠️ **本阶段不实装真实发信**：验证码只写入服务端日志（管理员取码代发），正式上线前须实装 SMTP——见 [路线图](#路线图)
 - 管理后台：竞赛编辑、来源 / 异常、纠错处理台、版本回滚、公告、举报、用户管理
 - 品牌视觉：校徽深蓝 `#0F4C8C` + 银杏黄 `#F5B901` 玻璃拟态设计系统
 
@@ -123,8 +123,8 @@ cp apps/api/.env.example apps/api/.env   # 按本地数据库修改
 
 # 3. 准备数据库（任选一种）
 #    a) Docker：docker compose -f deploy/docker-compose.yml up -d db redis
-#       首次需建扩展：docker compose -f deploy/docker-compose.yml exec db \
-#         psql -U teamup -d teamup -c "CREATE EXTENSION IF NOT EXISTS pg_trgm;"
+#       （pg_trgm 扩展与竞赛名唯一索引已由迁移
+#         20260924000000_pg_trgm_and_unique_competition_name 建好，无需手工执行）
 #    b) WSL2 Ubuntu：wsl -d Ubuntu -e bash -c "systemctl start postgresql redis-server"
 
 # 4. 构建共享包 → 迁移 → 种子数据
@@ -142,13 +142,21 @@ pnpm dev
 
 ### 演示账号（种子数据）
 
-| 账号 | 密码 | 说明 |
-|---|---|---|
-| `2024080909015@std.uestc.edu.cn` | `123456789` | 管理员，登录后进 `/admin` 后台 |
-| `2024080909000@std.uestc.edu.cn` | `123456789` | 普通测试用户 |
-| 其余 4 个演示用户 | 无密码 | 验证码登录后在「个人中心」设置密码 |
+演示用户的初始密码取自环境变量 `SEED_ADMIN_PASSWORD`（未设置则不写入密码，此时走邮箱验证码登录——**本阶段验证码从服务端日志获取**，登录后在「个人中心」设置密码）。
 
-dev 模式（`MAIL_PROVIDER=console`）下验证码打印在后端控制台并随响应 `dev.devCode` 回显；接入真实发信见 [路线图](#路线图)。
+```bash
+SEED_ADMIN_PASSWORD='<自定义强密码>' pnpm db:seed
+```
+
+| 账号 | 说明 |
+|---|---|
+| `2024080909015@std.uestc.edu.cn` | 管理员，登录后进 `/admin` 后台 |
+| `2024080909000@std.uestc.edu.cn` | 普通测试用户 |
+| 其余 4 个演示用户 | 未设密码，用验证码登录（本阶段从服务端日志取码）后在「个人中心」设置密码 |
+
+> 该 seed 脚本会**清空全库**再写入。`NODE_ENV=production` 时默认拒绝执行，确需在生产执行须显式设置 `ALLOW_PROD_SEED=true`。
+
+**本阶段不实装真实发信**（属路线图）：`MAIL_PROVIDER=console` 下验证码打印到后端控制台，dev 模式另随响应 `dev.devCode` 回显。生产环境同样如此，且后端**不会**因此拒绝启动——因此 **生产日志的访问权限等同账号登录权限**（能读日志者可为任意邮箱取码登录），请按凭据级别管控、勿接入第三方日志采集平台。正式上线前请实装 SMTP 并切 `MAIL_PROVIDER=qq`——见 [路线图](#路线图)。
 
 ## 常用命令
 
@@ -175,7 +183,7 @@ pnpm -F @teamup/api test          # apps/api/test/teams.spec.ts
 
 ```bash
 cd deploy
-cp .env.example .env              # 填写 POSTGRES_PASSWORD、COOKIE_SECRET（64 位随机）
+cp .env.example .env              # 必填：POSTGRES_PASSWORD、WEB_ORIGIN、MAIL_PROVIDER 等
 docker compose up -d --build
 
 # 首次部署 / 升级后同步 schema
@@ -183,8 +191,9 @@ docker compose exec api npx prisma migrate deploy
 ```
 
 - 内存预算（2C2G）：PG `shared_buffers=256MB`（`deploy/pg.conf`）、API 限 320M、Redis 48M、nginx 64M
-- HTTPS：建议前置 Caddy 或 certbot；国内服务器 + 域名需 **ICP 备案**
-- 真实发信：`.env` 中 `MAIL_PROVIDER=qq` + QQ 邮箱 16 位 SMTP 授权码（个人邮箱有每日发信限额，上线前实测送达率）
+- `WEB_ORIGIN`：后端 CORS 白名单，必须设为真实对外域名（如 `https://teamup.example.edu.cn`），否则线上恒回退 `localhost` 导致跨域请求被拒
+- HTTPS：nginx 当前仅监听 80；启用 TLS 请取消 `deploy/nginx.conf` 中 443 server 块的注释、填入证书路径，并**同时**把 `.env` 的 `COOKIE_SECURE` 设为 `true`（保持 `false` 会让浏览器拒收 Secure cookie，登录直接失效）。国内服务器 + 域名需 **ICP 备案**
+- 邮件发信（**阶段措施，当前不实装**）：本阶段 `MAIL_PROVIDER=console`，验证码仅进服务端日志，后端不会因此拒绝启动。⚠️ **生产日志访问权限等同账号登录权限**（能读日志者可为任意邮箱取码登录），须按凭据级别管控、勿接入第三方日志采集平台。正式上线前改为 `MAIL_PROVIDER=qq` + QQ 邮箱 16 位 SMTP 授权码（个人邮箱有每日发信限额，上线前实测送达率）
 
 ## 文档索引
 
@@ -209,7 +218,7 @@ docker compose exec api npx prisma migrate deploy
 ## 路线图
 
 - ✅ **P1 平台地基**：注册登录（验证码 / 密码）、竞赛雷达、组队状态机、管理后台、DDL 提醒
-- 🔜 **真实邮件发送**：接缝已留——实现 `apps/api/src/modules/mail/qq-smtp.provider.ts`，`.env` 切 `MAIL_PROVIDER=qq`；限流 / 防枚举 / 会话已就绪
+- 🔜 **真实邮件发送**（当前为阶段措施：验证码仅进服务端日志）：接缝已留——实现 `apps/api/src/modules/mail/qq-smtp.provider.ts`，`.env` 切 `MAIL_PROVIDER=qq`；限流 / 防枚举 / 会话已就绪
 - 🔜 **自动采集**：表结构（`CrawlSource/Snapshot/Item/Anomaly/Revision`）与安全带（纠错处理台、版本回滚）已就绪，按 [MODULE_CRAWLER](./docs/MODULE_CRAWLER.md) §10 顺序补 fetcher → parser → matcher → guard → publisher；竞赛官网清单见 `data/competition-sites.csv`
 - 💤 **智能匹配**：冷启动期数据密度不足，P3 再评估
 

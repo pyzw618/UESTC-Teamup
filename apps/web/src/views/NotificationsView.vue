@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import { ref, onMounted, computed } from 'vue';
 import { useRouter } from 'vue-router';
+import { ElMessage } from 'element-plus';
 import { api } from '../api/client';
 import { fmtDate, type NotificationItem } from '../api/types';
 
@@ -16,28 +17,46 @@ const filter = ref<'ALL' | 'UNREAD'>('ALL');
 async function load() {
   loading.value = true;
   try {
+    // H8：未读筛选交给服务端（unread=true），total 与列表同条件，分页才正确
     const res = await api.get<{ items: NotificationItem[]; unread: number; total: number }>(
-      `/notifications?page=${page.value}&pageSize=20`,
+      `/notifications?page=${page.value}&pageSize=20${filter.value === 'UNREAD' ? '&unread=true' : ''}`,
     );
-    items.value = filter.value === 'ALL' ? res.items : res.items.filter((i) => !i.readAt);
+    items.value = res.items;
     unread.value = res.unread;
     total.value = res.total;
+  } catch (e) {
+    ElMessage.error(e instanceof Error ? e.message : '消息加载失败');
   } finally {
     loading.value = false;
   }
 }
+
+/** 切换筛选回到第 1 页，避免停留在大页码后取到空列表 */
+function changeFilter() {
+  page.value = 1;
+  load();
+}
+
 onMounted(load);
 
 async function read(n: NotificationItem) {
   if (n.readAt) return;
-  await api.post(`/notifications/${n.id}/read`);
-  n.readAt = new Date().toISOString();
-  unread.value = Math.max(0, unread.value - 1);
+  try {
+    await api.post(`/notifications/${n.id}/read`);
+    n.readAt = new Date().toISOString();
+    unread.value = Math.max(0, unread.value - 1);
+  } catch (e) {
+    ElMessage.error(e instanceof Error ? e.message : '操作失败');
+  }
 }
 
 async function readAll() {
-  await api.post('/notifications/read-all');
-  load();
+  try {
+    await api.post('/notifications/read-all');
+    await load();
+  } catch (e) {
+    ElMessage.error(e instanceof Error ? e.message : '操作失败');
+  }
 }
 
 const payloadText = (n: NotificationItem): { title: string; desc: string; link?: string } => {
@@ -49,20 +68,20 @@ const payloadText = (n: NotificationItem): { title: string; desc: string; link?:
         desc: `距截止还有 ${p.daysLeft} 天（${fmtDate(p.endAt as string, true)}），抓紧报名`,
         link: '/calendar',
       };
-    case 'APPLICATION_NEW':
-      return { title: '📥 收到新的入队申请', desc: '点击前往队伍处理', link: '/me/teams' };
-    case 'APPLICATION_RESULT':
-      return {
-        title: p.kind === 'invitation' ? '📤 邀请有了结果' : p.accepted ? '🎉 你的申请已通过' : '申请被婉拒',
-        desc: p.accepted ? '查看队伍信息，联系方式已解锁' : p.reason ? `理由：${p.reason}` : '继续寻找合适的队伍吧',
-        link: p.teamId ? `/teams/${p.teamId}` : '/me/teams',
-      };
-    case 'INVITATION_NEW':
-      return { title: '✉️ 你收到一条入队邀请', desc: '点击前往处理', link: '/me/teams' };
     case 'CORRECTION_NEW':
       return { title: '🔧 纠错处理通知', desc: String(p.message ?? (p.accepted ? '你的纠错已被采纳' : '有新的用户纠错待处理')), link: p.accepted ? undefined : '/admin/corrections' };
     case 'COMMENT_REPLY':
-      return { title: '💬 你的留言有了回复', desc: '点击查看', link: `/competitions/${p.targetId}` };
+      // H12：详情页按 targetType 分流（后端 payload: { targetType, targetId, commentId }）
+      return {
+        title: '💬 你的留言有了回复',
+        desc: '点击查看',
+        link:
+          p.targetType === 'TEAM'
+            ? `/teams/${p.targetId}`
+            : p.targetType === 'COMPETITION'
+              ? `/competitions/${p.targetId}`
+              : undefined,
+      };
     case 'SYSTEM_NOTIFICATION':
       return { title: `📢 ${String(p.title ?? n.kindLabel)}`, desc: String(p.content ?? '') };
     default:
@@ -81,7 +100,7 @@ const shown = computed(() => items.value);
         <p class="text-13px color-ink-soft m-0 mt-4px">{{ unread > 0 ? `${unread} 条未读` : '全部已读' }}</p>
       </div>
       <div class="flex gap-8px items-center">
-        <el-radio-group v-model="filter" size="small" @change="load">
+        <el-radio-group v-model="filter" size="small" @change="changeFilter">
           <el-radio-button value="ALL">全部</el-radio-button>
           <el-radio-button value="UNREAD">未读</el-radio-button>
         </el-radio-group>

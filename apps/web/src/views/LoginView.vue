@@ -1,8 +1,8 @@
 <script setup lang="ts">
-import { ref, computed } from 'vue';
+import { ref, computed, onUnmounted } from 'vue';
 import { useRouter, useRoute } from 'vue-router';
 import { ElMessage } from 'element-plus';
-import { api, ApiError } from '../api/client';
+import { api, ApiError, lastDevPayload } from '../api/client';
 import { useAuthStore } from '../stores/auth';
 import { useSlideThumb } from '../composables/useSlideThumb';
 
@@ -32,6 +32,18 @@ function startCooldown() {
     }
   }, 1000);
 }
+
+// M19：组件卸载时清理倒计时定时器，避免泄漏
+onUnmounted(() => {
+  if (timer) {
+    clearInterval(timer);
+    timer = null;
+  }
+  if (fpTimer) {
+    clearInterval(fpTimer);
+    fpTimer = null;
+  }
+});
 
 async function sendCode() {
   if (!emailValid.value) {
@@ -93,6 +105,8 @@ async function sendForgotCode() {
   fpSending.value = true;
   try {
     const res = await api.post<{ message?: string }>('/auth/forgot-password', { email: fpEmail.value.trim() });
+    // M17：dev 环境后端在信封顶层回显 dev.devCode（生产为 undefined），仅用于本地联调
+    fpDevCode.value = String(lastDevPayload()?.devCode ?? '');
     startFpCooldown();
     ElMessage.success(res.message || '找回验证码已发送');
   } catch (e) {
@@ -317,6 +331,10 @@ function backToEmail() {
         <div>
           <div class="text-13px color-ink-soft mb-6px">邮件验证码</div>
           <el-input v-model="fpCode" maxlength="6" placeholder="6 位验证码" />
+          <!-- M17：仅当后端回显 devCode（非生产环境）时出现，生产路径 fpDevCode 为空不渲染 -->
+          <div v-if="fpDevCode" class="text-12px color-ink-faint mt-6px">
+            开发模式验证码：<b class="color-ink">{{ fpDevCode }}</b>
+          </div>
         </div>
         <div>
           <div class="text-13px color-ink-soft mb-6px">新密码（8-64 位）</div>

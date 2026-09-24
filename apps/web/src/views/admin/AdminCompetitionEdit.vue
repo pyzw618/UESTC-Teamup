@@ -35,29 +35,57 @@ const form = ref({
 
 const levelOptions = Object.values(Level).map((l) => ({ value: l, label: LevelLabel[l] }));
 
+type TimelineForm = { id?: string; stage: string; level: Level | null; startAt: string | null; endAt: string | null };
+
+/** S5：后端 adminDetail 现在返回字符串数组；防御性归一化，收到对象形态也不崩 */
+function toStr(v: unknown): string {
+  if (typeof v === 'string') return v;
+  const o = v as { level?: unknown; name?: unknown } | null;
+  return String(o?.level ?? o?.name ?? '');
+}
+
 onMounted(async () => {
   if (!isEdit.value) return;
-  const c = await api.get<typeof form.value & { aliases: string[] }>(`/admin/competitions/${route.params.id}`);
+  let c: Record<string, any>;
+  try {
+    c = await api.get<Record<string, any>>(`/admin/competitions/${route.params.id}`);
+  } catch (e) {
+    // H10：编辑态拉取失败（不存在/无权限）不能变成 unhandled rejection
+    ElMessage.error(e instanceof Error ? e.message : '竞赛信息加载失败');
+    router.push({ name: 'admin-competitions' });
+    return;
+  }
+  /**
+   * S5：显式挑选表单字段，不再 `{...c}` 全量展开。
+   * 原来把接口返回的 id / createdAt / updatedAt 等一并塞进 form，
+   * save() 再 `{...form.value}` 全量回传，等于把只读字段写回后端。
+   */
   form.value = {
-    ...c,
-    aliases: c.aliases ?? [],
-    intro: c.intro ?? '',
+    name: c.name ?? '',
+    aliases: Array.isArray(c.aliases) ? c.aliases : [],
     organizer: c.organizer ?? '',
     officialUrl: c.officialUrl ?? '',
+    format: (c.format ?? null) as CompetitionFormat | null,
+    teamSizeMin: c.teamSizeMin ?? null,
+    teamSizeMax: c.teamSizeMax ?? null,
+    audience: (c.audience ?? null) as Audience | null,
+    intro: c.intro ?? '',
+    difficulty: c.difficulty ?? null,
+    effort: c.effort ?? null,
+    isBonusEligible: c.isBonusEligible ?? null,
     bonusCategory: c.bonusCategory ?? '',
     bonusPoints: c.bonusPoints ?? '',
     sourceUrl: c.sourceUrl ?? '',
-    tags: c.tags ?? [],
-    levels: c.levels ?? [],
-    timelines: (c.timelines ?? []).map(
-      (t: { id?: string; stage: string; level: Level | null; startAt: string | null; endAt: string | null }) => ({
-        id: t.id,
-        stage: t.stage,
-        level: t.level,
-        startAt: t.startAt ? t.startAt.slice(0, 16) : null,
-        endAt: t.endAt ? t.endAt.slice(0, 16) : null,
-      }),
-    ),
+    status: (c.status ?? PublishStatus.PUBLISHED) as PublishStatus,
+    levels: (Array.isArray(c.levels) ? c.levels : []).map(toStr).filter(Boolean) as Level[],
+    tags: (Array.isArray(c.tags) ? c.tags : []).map(toStr).filter(Boolean),
+    timelines: ((c.timelines ?? []) as TimelineForm[]).map((t) => ({
+      id: t.id,
+      stage: t.stage,
+      level: t.level,
+      startAt: t.startAt ? t.startAt.slice(0, 16) : null,
+      endAt: t.endAt ? t.endAt.slice(0, 16) : null,
+    })),
   };
 });
 
@@ -72,23 +100,26 @@ async function save() {
   }
   saving.value = true;
   try {
+    // S5：显式列出可写字段（原来 `...form.value` 会把只读字段一并回传）
     const payload = {
-      ...form.value,
+      name: form.value.name.trim(),
       aliases: form.value.aliases.filter((a) => a.trim()),
-      tags: form.value.tags.filter((t) => t.trim()),
       organizer: form.value.organizer || undefined,
       officialUrl: form.value.officialUrl || undefined,
+      format: form.value.format ?? undefined,
+      teamSizeMin: form.value.teamSizeMin ?? undefined,
+      teamSizeMax: form.value.teamSizeMax ?? undefined,
+      audience: form.value.audience ?? undefined,
       intro: form.value.intro || undefined,
+      difficulty: form.value.difficulty ?? undefined,
+      effort: form.value.effort ?? undefined,
+      isBonusEligible: form.value.isBonusEligible ?? undefined,
       bonusCategory: form.value.bonusCategory || undefined,
       bonusPoints: form.value.bonusPoints || undefined,
       sourceUrl: form.value.sourceUrl || undefined,
-      difficulty: form.value.difficulty ?? undefined,
-      effort: form.value.effort ?? undefined,
-      teamSizeMin: form.value.teamSizeMin ?? undefined,
-      teamSizeMax: form.value.teamSizeMax ?? undefined,
-      format: form.value.format ?? undefined,
-      audience: form.value.audience ?? undefined,
-      isBonusEligible: form.value.isBonusEligible ?? undefined,
+      status: form.value.status,
+      levels: form.value.levels,
+      tags: form.value.tags.filter((t) => t.trim()),
       timelines: form.value.timelines
         .filter((t) => t.stage.trim())
         .map((t) => ({

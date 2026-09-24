@@ -16,6 +16,9 @@ async function load() {
   loading.value = true;
   try {
     items.value = await api.get('/admin/announcements');
+  } catch (e) {
+    // H10：补 catch
+    ElMessage.error(e instanceof Error ? e.message : '公告列表加载失败');
   } finally {
     loading.value = false;
   }
@@ -41,16 +44,29 @@ async function publish() {
 }
 
 async function toggle(row: (typeof items.value)[number]) {
-  await api.post(`/admin/announcements/${row.id}/toggle`);
-  ElMessage.success(row.active ? '已下线' : '已重新发布（旧公告自动下线）');
-  load();
+  // H10：原本无 try/catch，接口失败即 unhandled rejection 且用户看不到任何提示
+  try {
+    await api.post(`/admin/announcements/${row.id}/toggle`);
+    ElMessage.success(row.active ? '已下线' : '已重新发布（旧公告自动下线）');
+  } catch (e) {
+    ElMessage.error(e instanceof Error ? e.message : '操作失败');
+  }
+  await load();
 }
 
 async function remove(row: (typeof items.value)[number]) {
-  await ElMessageBox.confirm('确认删除该公告？', '删除公告', { type: 'warning' });
-  await api.delete(`/admin/announcements/${row.id}`);
-  ElMessage.success('已删除');
-  load();
+  try {
+    await ElMessageBox.confirm('确认删除该公告？', '删除公告', { type: 'warning' });
+  } catch {
+    return; // H10：用户取消 / 关闭弹窗
+  }
+  try {
+    await api.delete(`/admin/announcements/${row.id}`);
+    ElMessage.success('已删除');
+  } catch (e) {
+    ElMessage.error(e instanceof Error ? e.message : '删除失败');
+  }
+  await load();
 }
 </script>
 

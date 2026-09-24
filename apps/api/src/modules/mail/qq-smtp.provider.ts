@@ -11,7 +11,7 @@ export class QqSmtpProvider implements MailProvider {
   private readonly logger = new Logger('Mail');
 
   async send(_msg: MailMessage): Promise<void> {
-    this.logger.warn('QqSmtpProvider 为留空桩：请在 .env 配置 QQ_SMTP_USER/PASS 并实现 nodemailer 发送');
-    throw new Error('邮件发送未接入（本次留空），请使用 MAIL_PROVIDER=console');
+    this.logger.warn('QqSmtpProvider 为留空桩：部署前必须实装 SMTP（nodemailer + smtp.qq.com:465 SSL），并配置 QQ_SMTP_USER/PASS');
+    throw new Error('邮件发送未接入：QqSmtpProvider 仍是桩实现，部署前必须实装 SMTP（或临时使用 MAIL_PROVIDER=console）');
   }
 }

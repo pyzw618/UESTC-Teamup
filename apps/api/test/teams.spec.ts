@@ -20,7 +20,7 @@ migrateTestDatabase();
 
 const BASE_INPUT = {
   goal: TeamGoal.PRIZE,
-  contact: 'QQ 10086',
+  qq: '10086',
   neededRoles: [RoleType.ALGORITHM, RoleType.OTHER],
 } as const;
 
@@ -34,7 +34,7 @@ test('create：联系方式必填 + 竞赛自动建档 + 方向去重', async ()
   const leader = await makeUser(prisma);
 
   await assert.rejects(
-    teams.create(leader.id, { ...BASE_INPUT, contact: '   ' }),
+    teams.create(leader.id, { ...BASE_INPUT, qq: '   ' }),
     /联系方式/,
   );
 
@@ -43,7 +43,7 @@ test('create：联系方式必填 + 竞赛自动建档 + 方向去重', async ()
     competitionName: '广告牌测试赛',
     neededRoles: [RoleType.ALGORITHM, RoleType.ALGORITHM, RoleType.PAPER],
   });
-  assert.equal(post.contact, 'QQ 10086');
+  assert.equal(post.qq, '10086');
   assert.deepEqual(post.neededRoles, [RoleType.ALGORITHM, RoleType.PAPER]);
 
   const comp = await prisma.competition.findFirst({ where: { name: '广告牌测试赛' } });
@@ -104,7 +104,7 @@ test('setStatus：手动三态可切换；COMPETING 拒绝手动；DISBANDED 是
   const after = await prisma.team.findUniqueOrThrow({ where: { id: post.id } });
   assert.equal(after.status, TeamStatus.DISBANDED);
   await assert.rejects(teams.setStatus(leader.id, post.id, TeamStatus.RECRUITING), /归档/);
-  await assert.rejects(teams.update(leader.id, post.id, { ...BASE_INPUT, contact: 'QQ 2' }), /归档/);
+  await assert.rejects(teams.update(leader.id, post.id, { ...BASE_INPUT, qq: '2' }), /归档/);
 });
 
 test('detail：联系方式公开可见', async () => {
@@ -113,10 +113,10 @@ test('detail：联系方式公开可见', async () => {
   const leader = await makeUser(prisma);
   const visitor = await makeUser(prisma);
   const comp = await makeCompetition(prisma, '详情测试赛');
-  const post = await makeTeamPost(prisma, { competitionId: comp.id, leaderId: leader.id, contact: '微信 abc_123' });
+  const post = await makeTeamPost(prisma, { competitionId: comp.id, leaderId: leader.id, wechat: 'abc_123' });
 
   const d = await teams.detail(post.id, visitor.id, 'STUDENT');
-  assert.equal(d.contact, '微信 abc_123');
+  assert.equal(d.wechat, 'abc_123');
   assert.equal(d.viewer.isLeader, false);
 
   const own = await teams.detail(post.id, leader.id, 'STUDENT');

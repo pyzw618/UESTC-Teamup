@@ -17,6 +17,8 @@ const form = ref({
 });
 const skills = ref<{ skill: string; level: number | null }[]>([]);
 const saving = ref(false);
+/** 首屏资料加载态：失败时也要结束，避免骨架屏卡死 */
+const loading = ref(true);
 
 // 密码管理
 const pwdForm = ref({ oldPassword: '', newPassword: '', confirm: '' });
@@ -30,12 +32,18 @@ const profileIncomplete = computed(
 );
 
 onMounted(async () => {
-  const me = await api.get<typeof form.value & { skills: { skill: string; level: number | null }[]; hasPassword?: boolean }>('/users/me');
-  form.value = { nickname: me.nickname || '', college: me.college || '', grade: me.grade, major: me.major || '', bio: me.bio || '' };
-  skills.value = me.skills || [];
-  // /auth/me 带 hasPassword（users/me 不含密码字段），此处再取一次
-  const me2 = await api.get<{ hasPassword?: boolean }>('/auth/me');
-  hasPassword.value = !!me2?.hasPassword;
+  try {
+    const me = await api.get<typeof form.value & { skills: { skill: string; level: number | null }[] }>('/users/me');
+    form.value = { nickname: me.nickname || '', college: me.college || '', grade: me.grade, major: me.major || '', bio: me.bio || '' };
+    skills.value = me.skills || [];
+    // H7：hasPassword 直接复用 auth store 已解析的 /auth/me 结果（bootstrap 已在路由守卫完成），
+    // 不再二次请求，也避免读错层级（后端返回 { user: { hasPassword } }，client 只剥 data 层）
+    hasPassword.value = !!auth.user?.hasPassword;
+  } catch (e) {
+    ElMessage.error(e instanceof Error ? e.message : '资料加载失败，请刷新重试');
+  } finally {
+    loading.value = false;
+  }
 });
 
 function addSkill() {
@@ -103,7 +111,7 @@ async function savePassword() {
 </script>
 
 <template>
-  <div class="glass p-22px">
+  <div v-loading="loading" class="glass p-22px min-h-200px">
     <el-alert
       v-if="requiredMode && profileIncomplete"
       type="warning"

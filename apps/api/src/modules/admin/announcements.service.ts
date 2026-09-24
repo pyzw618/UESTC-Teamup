@@ -49,6 +49,8 @@ export class AnnouncementsService {
   }
 
   async remove(id: string) {
+    const ann = await this.prisma.announcement.findUnique({ where: { id }, select: { id: true } });
+    if (!ann) throw new NotFoundException('公告不存在');
     await this.prisma.announcement.delete({ where: { id } });
     return { deleted: true };
   }

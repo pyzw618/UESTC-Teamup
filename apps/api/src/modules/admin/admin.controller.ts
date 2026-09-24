@@ -30,7 +30,7 @@ class TimelineItemDto {
 
 class CompetitionDto {
   @IsString() @Length(1, 120) name!: string;
-  @IsOptional() @IsArray() aliases?: string[];
+  @IsOptional() @IsArray() @IsString({ each: true }) aliases?: string[];
   @IsOptional() @IsString() organizer?: string;
   @IsOptional() @IsString() officialUrl?: string;
   @IsOptional() @IsEnum(CompetitionFormat) format?: CompetitionFormat;
@@ -45,8 +45,8 @@ class CompetitionDto {
   @IsOptional() @IsString() bonusPoints?: string;
   @IsOptional() @IsString() sourceUrl?: string;
   @IsOptional() @IsEnum(PublishStatus) status?: PublishStatus;
-  @IsOptional() @IsArray() levels?: Level[];
-  @IsOptional() @IsArray() tags?: string[];
+  @IsOptional() @IsArray() @IsEnum(Level, { each: true }) levels?: Level[];
+  @IsOptional() @IsArray() @IsString({ each: true }) tags?: string[];
   @IsOptional() @IsArray() @ValidateNested({ each: true }) @Type(() => TimelineItemDto)
   timelines?: TimelineItemDto[];
 }

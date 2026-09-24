@@ -9,7 +9,8 @@
     "dev:web": "pnpm -F @teamup/web dev",
     "build": "pnpm -F @teamup/shared build && pnpm -r --filter '!@teamup/shared' build",
     "db:migrate": "pnpm -F @teamup/api prisma:migrate",
-    "db:seed": "pnpm -F @teamup/api seed"
+    "db:seed": "pnpm -F @teamup/api seed",
+    "test:crawler": "pnpm -F @teamup/api test:crawler"
   },
   "engines": {
     "node": ">=20"

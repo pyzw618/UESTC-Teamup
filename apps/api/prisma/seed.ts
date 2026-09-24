@@ -709,12 +709,73 @@ async function main() {
     });
   }
 
+  // 12) 采集源预设（针对电子科技大学竞赛信息与研究生院实践）
+  const crawlerSources = [
+    {
+      name: '电子科技大学竞赛管理系统-通知公告',
+      url: 'https://xkjs.uestc.edu.cn/prod-api/home/news/page?pageNum=1&pageSize=20&topicId=10000',
+      kind: 'ACADEMIC_AFFAIRS' as const,
+      cron: '0 15 */6 * * *',
+      parseStrategy: 'JSON_API' as const,
+      enabled: true,
+      selectorConf: {
+        itemsPath: 'data.records',
+        titlePath: 'title',
+        urlPath: 'urlLink',
+        publishTimePath: 'publishTime',
+        contentPath: 'content',
+        externalIdPath: 'newsId',
+        defaultUrl: 'https://xkjs.uestc.edu.cn/home/homepage',
+      },
+    },
+    {
+      name: '电子科技大学竞赛管理系统-竞赛动态',
+      url: 'https://xkjs.uestc.edu.cn/prod-api/home/notice/list?pageNum=1&pageSize=20&status=',
+      kind: 'COMPETITION_SITE' as const,
+      cron: '0 30 */6 * * *',
+      parseStrategy: 'JSON_API' as const,
+      enabled: true,
+      selectorConf: {
+        itemsPath: 'data.records',
+        titlePath: 'name',
+        publishTimePath: 'publishTime',
+        externalIdPath: 'competitionId',
+        defaultUrl: 'https://xkjs.uestc.edu.cn/home/homepage',
+      },
+    },
+    {
+      name: '电子科技大学研究生院-竞赛实践',
+      url: 'https://gr.uestc.edu.cn/jiuye/152',
+      kind: 'COLLEGE' as const,
+      cron: '0 45 */6 * * *',
+      parseStrategy: 'CSS' as const,
+      enabled: true,
+      selectorConf: {
+        itemSelector: '.topic_item',
+        titleSelector: '.title a',
+        linkSelector: '.title a',
+        publishTimeSelector: '.time',
+        contentSelector: '.content',
+        detailTitleSelector: '.topic_detail_header .title, .title',
+        detailContentSelector: '.content',
+      },
+    },
+  ];
+
+  for (const src of crawlerSources) {
+    const existing = await prisma.crawlSource.findFirst({ where: { url: src.url } });
+    if (!existing) {
+      await prisma.crawlSource.create({ data: src });
+    }
+  }
+
   const counts = {
     competitions: await prisma.competition.count(),
     bonusEligible: await prisma.competition.count({ where: { isBonusEligible: true } }),
     teams: await prisma.team.count(),
     users: await prisma.user.count(),
     timelines: await prisma.competitionTimeline.count(),
+    sources: await prisma.crawlSource.count(),
   };
   console.log('种子完成：', counts);
 }

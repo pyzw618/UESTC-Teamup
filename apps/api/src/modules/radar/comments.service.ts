@@ -2,11 +2,7 @@ import { BadRequestException, ForbiddenException, Injectable, NotFoundException 
 import { CommentTarget } from '@teamup/shared';
 import { Prisma } from '@prisma/client';
 import { PrismaService } from '../../common/prisma.service';
-import { RedisService } from '../../common/redis.service';
 import { NotificationService } from '../notification/notification.service';
-
-/** 评论发布限流：每分钟上限 */
-const COMMENT_RATE_LIMIT = 10;
 
 /** 唯一键冲突（并发下另一个请求已点赞） */
 const isUniqueViolation = (e: unknown) =>
@@ -20,15 +16,10 @@ export class CommentsService {
   constructor(
     private readonly prisma: PrismaService,
     private readonly notify: NotificationService,
-    private readonly redis: RedisService,
   ) {}
 
   /** 多态评论（Q7）：存在性校验在应用层 */
   async create(authorId: string, dto: { targetType: CommentTarget; targetId: string; content: string; parentId?: string }) {
-    // UGC 限流：10 条/分钟（M14）
-    const hits = await this.redis.incrWithTtl(`rl:comment:create:${authorId}`, 60);
-    if (hits > COMMENT_RATE_LIMIT) throw new BadRequestException('操作太频繁，请稍后再试');
-
     await this.assertTarget(dto.targetType, dto.targetId);
 
     // 楼中楼拍平：回复的回复挂到根评论下，真实回复对象记在 replyToId

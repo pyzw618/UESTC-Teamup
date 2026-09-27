@@ -6,7 +6,7 @@ import { CurrentUser, Public } from '../../common/auth/decorators';
 import type { User } from '@prisma/client';
 import type { Response } from 'express';
 import { UserSerializer } from '../../common/auth/viewer.context';
-import { CompetitionsService } from './competitions.service';
+import { CompetitionsService, currentEditionYear } from './competitions.service';
 import { CalendarService } from './calendar.service';
 import { CommentsService } from './comments.service';
 import { CorrectionsService } from './corrections.service';
@@ -22,6 +22,8 @@ class ListQueryDto {
   @IsOptional() @TransformBoolean() bonusOnly?: boolean;
   @IsOptional() @IsIn(['OPEN', 'UPCOMING', 'ENDED']) status?: 'OPEN' | 'UPCOMING' | 'ENDED';
   @IsOptional() @IsIn(['DEADLINE', 'LATEST', 'DIFFICULTY', 'HOT']) sort?: string;
+  /** 届次年份（Issue 6）：缺省 = 当前年份 */
+  @IsOptional() @IsInt() @Min(2000) @Max(2100) year?: number;
   @IsOptional() @IsInt() @Min(1) page: number = 1;
   @IsOptional() @IsInt() @Min(1) @Max(60) pageSize: number = 12;
 }
@@ -48,6 +50,8 @@ class CalendarQueryDto {
   @IsOptional() @IsString() start?: string;
   @IsOptional() @IsString() end?: string;
   @IsOptional() @TransformStringArray() levels?: string[];
+  /** 届次年份（Issue 6）：缺省 = 当前年份 */
+  @IsOptional() @IsInt() @Min(2000) @Max(2100) year?: number;
 }
 
 @Controller()
@@ -78,6 +82,13 @@ export class RadarController {
     } as never);
   }
 
+  /** 已收录的届次年份（Issue 6 年份切换器数据源） */
+  @Public()
+  @Get('competitions/years')
+  years() {
+    return this.competitions.years();
+  }
+
   @Public()
   @Get('competitions/:id')
   async detail(@CurrentUser() user: User | undefined, @Param('id') id: string) {
@@ -91,6 +102,7 @@ export class RadarController {
     return {
       ...detail,
       recruitingTeamsCount,
+      // service 已完成 memberCount（含队长）/ intentCount 口径计算，这里原样透传
       recruitingTeams: detail.recruitingTeams.map((t) => ({
         id: t.id,
         goal: t.goal,
@@ -98,7 +110,8 @@ export class RadarController {
         deadline: t.deadline,
         neededRoles: t.neededRoles,
         targetSize: t.targetSize,
-        memberCount: t._count.members,
+        memberCount: t.memberCount,
+        intentCount: t.intentCount,
         leader: this.serializer.serialize({ ...t.leader, teamIds: [] }),
       })),
     };
@@ -113,7 +126,8 @@ export class RadarController {
   @Public()
   @Get('calendar')
   calendar(@Query() query: CalendarQueryDto) {
-    return this.calendarSvc.range(query);
+    // 日历默认只看当前届（Issue 6）；前端提供年份切换时显式传 year
+    return this.calendarSvc.range({ ...query, year: query.year ?? currentEditionYear() });
   }
 
   /** 订阅到手机日历（比站内提醒有用 10 倍） */
@@ -128,8 +142,10 @@ export class RadarController {
 
   @Public()
   @Get('search')
-  search(@Query('q') q: string, @Query('kind') kind = 'competition') {
-    return this.searchSvc.search(q, kind);
+  search(@Query('q') q: string, @Query('kind') kind = 'competition', @Query('year') year?: string) {
+    // 搜索默认当前届（Issue 6）；year=all 允许跨届搜索由前端显式开启
+    const parsed = year && /^\d{4}$/.test(year) ? Number(year) : undefined;
+    return this.searchSvc.search(q, kind, parsed);
   }
 
   @Public()

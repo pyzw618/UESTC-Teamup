@@ -12,6 +12,7 @@ const items = ref<
   {
     id: string;
     name: string;
+    year: number | null;
     status: string;
     levels: string[];
     tags: string[];
@@ -72,7 +73,10 @@ const statusLabel = (s: string) => PublishStatusLabel[s as PublishStatus] ?? s;
     </div>
 
     <el-table :data="items" v-loading="loading">
-      <el-table-column prop="name" label="名称" min-width="220" />
+      <el-table-column prop="name" label="名称" min-width="200" />
+      <el-table-column label="届次" width="70">
+        <template #default="{ row }">{{ row.year ?? '—' }}</template>
+      </el-table-column>
       <el-table-column label="状态" width="90">
         <template #default="{ row }">
           <el-tag size="small" round :type="row.status === 'PUBLISHED' ? 'success' : row.status === 'DRAFT' ? 'info' : 'danger'">

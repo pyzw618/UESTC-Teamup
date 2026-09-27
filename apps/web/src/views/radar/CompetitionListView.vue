@@ -31,6 +31,8 @@ const filters = reactive({
   bonusOnly: false,
   status: '',
   sort: 'LATEST',
+  /** 届次年份（Issue 6）：默认当前年份，可切换历史届次 */
+  year: new Date().getFullYear() as number | null,
 });
 const page = ref(1);
 const pageSize = 12;
@@ -40,6 +42,10 @@ const loading = ref(false);
 const view = ref<'card' | 'table'>('card');
 const viewSwitchRef = ref<HTMLElement | null>(null);
 const { thumbStyle: viewThumbStyle } = useSlideThumb(viewSwitchRef, () => view.value, '.seg-switch-item.active');
+
+/** 已收录的届次年份（供年份切换器） */
+const yearOptions = ref<number[]>([]);
+const currentYear = new Date().getFullYear();
 
 const levelOptions = [
   { value: Level.INTERNATIONAL, label: LevelLabel[Level.INTERNATIONAL] },
@@ -147,7 +153,20 @@ watch(
   },
 );
 
-onMounted(load);
+/** 已收录的届次年份（Issue 6 年份切换器数据源）；保证当前年份始终可选 */
+async function loadYearOptions() {
+  try {
+    const years = await api.get<number[]>('/competitions/years');
+    yearOptions.value = [...new Set([currentYear, ...years])].sort((a, b) => b - a);
+  } catch {
+    yearOptions.value = [currentYear];
+  }
+}
+
+onMounted(() => {
+  load();
+  loadYearOptions();
+});
 
 const statusText: Record<string, string> = { OPEN: '报名中', UPCOMING: '即将开始', ENDED: '已结束', UNKNOWN: '待定' };
 const statusColor: Record<string, string> = {
@@ -230,6 +249,12 @@ const activeFilterCount = computed(
               <el-option value="OPEN" label="报名中" />
               <el-option value="UPCOMING" label="即将开始" />
               <el-option value="ENDED" label="已结束" />
+            </el-select>
+          </div>
+          <div>
+            <div class="filter-label">届次年份</div>
+            <el-select v-model="filters.year" placeholder="全部" size="default" style="width: 100%">
+              <el-option v-for="y in yearOptions" :key="y" :value="y" :label="`${y} 届${y === currentYear ? '（今年）' : ''}`" />
             </el-select>
           </div>
           <el-divider class="!my-4px" />

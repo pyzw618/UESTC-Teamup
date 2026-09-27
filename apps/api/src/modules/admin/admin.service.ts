@@ -15,6 +15,8 @@ import { decorateListItem } from '../radar/competitions.service';
 
 export interface UpsertCompetitionInput {
   name: string;
+  /** 届次年份（Issue 6）：同一赛事可存在多个年度档案 */
+  year?: number;
   aliases?: string[];
   organizer?: string;
   officialUrl?: string;
@@ -38,6 +40,7 @@ export interface UpsertCompetitionInput {
 /** 竞赛主体上需要记版本的字段 */
 const TRACKED_FIELDS = [
   'name',
+  'year',
   'organizer',
   'officialUrl',
   'format',
@@ -64,6 +67,8 @@ export class AdminService {
       const comp = await tx.competition.create({
         data: {
           ...fields,
+          // 届次年份必填（Issue 6）：后台未传时默认当前年份
+          year: fields.year ?? new Date().getFullYear(),
           aliases: fields.aliases ?? [],
           status: fields.status ?? PublishStatus.PUBLISHED,
           levels: { create: (levels ?? []).map((level) => ({ level })) },
@@ -167,8 +172,81 @@ export class AdminService {
     void actorId;
     return this.prisma.competition.findUnique({
       where: { id },
-      include: { levels: true, tags: true, timelines: true },
+      include: { levels: true, tags: true, timelines: true, customFields: { orderBy: { createdAt: 'asc' } } },
     });
+  }
+
+  // ---------- 竞赛自定义字段（Issue 2） ----------
+
+  /**
+   * 键名约束：1-30 字，中文 / 字母 / 数字 / 下划线 / 连字符 / 空格；
+   * 值为纯文本（前端展示转义），入库前 trim，最长 500 字。
+   */
+  static normalizeCustomKey(key: string): string {
+    const k = key.trim();
+    if (!k) throw new BadRequestException('字段名不能为空');
+    if (k.length > 30) throw new BadRequestException('字段名最长 30 字');
+    if (!/^[\u4e00-\u9fa5A-Za-z0-9_\-\s]+$/.test(k)) {
+      throw new BadRequestException('字段名只能包含中文、字母、数字、下划线、连字符');
+    }
+    return k;
+  }
+
+  /** 新增 / 更新单个自定义键值；每次变更写入 MANUAL revision（field = "custom:<key>"），可回滚 */
+  async upsertCustomField(competitionId: string, key: string, value: string, actorId: string) {
+    const k = AdminService.normalizeCustomKey(key);
+    const v = value.trim();
+    if (!v) throw new BadRequestException('字段值不能为空');
+    if (v.length > 500) throw new BadRequestException('字段值最长 500 字');
+
+    const competition = await this.prisma.competition.findUnique({ where: { id: competitionId }, select: { id: true } });
+    if (!competition) throw new NotFoundException('竞赛不存在');
+
+    const field = await this.prisma.competitionCustomField.upsert({
+      where: { competitionId_key: { competitionId, key: k } },
+      create: { competitionId, key: k, value: v, updatedById: actorId },
+      update: { value: v, updatedById: actorId },
+    });
+
+    // 版本留痕（与主体字段同一套 revision 体系，origin=MANUAL，可回滚）
+    const oldValue = await this.prisma.crawlRevision.findFirst({
+      where: { competitionId, field: `custom:${k}` },
+      orderBy: { createdAt: 'desc' },
+      select: { newValue: true },
+    });
+    await this.prisma.crawlRevision.create({
+      data: {
+        competitionId,
+        field: `custom:${k}`,
+        oldValue: oldValue?.newValue ?? null,
+        newValue: v,
+        origin: RevisionOrigin.MANUAL,
+      },
+    });
+    return field;
+  }
+
+  /** 删除自定义键值；同样留痕（newValue=null），回滚可恢复 */
+  async deleteCustomField(competitionId: string, key: string) {
+    const k = AdminService.normalizeCustomKey(key);
+    const existing = await this.prisma.competitionCustomField.findUnique({
+      where: { competitionId_key: { competitionId, key: k } },
+    });
+    if (!existing) throw new NotFoundException('自定义字段不存在');
+
+    await this.prisma.$transaction([
+      this.prisma.competitionCustomField.delete({ where: { id: existing.id } }),
+      this.prisma.crawlRevision.create({
+        data: {
+          competitionId,
+          field: `custom:${k}`,
+          oldValue: existing.value,
+          newValue: null,
+          origin: RevisionOrigin.MANUAL,
+        },
+      }),
+    ]);
+    return { deleted: true };
   }
 
   async archiveCompetition(id: string) {
@@ -224,7 +302,7 @@ export class AdminService {
   async adminDetail(id: string) {
     const row = await this.prisma.competition.findUnique({
       where: { id },
-      include: { levels: true, tags: true, timelines: true },
+      include: { levels: true, tags: true, timelines: true, customFields: { orderBy: { createdAt: 'asc' } } },
     });
     if (!row) return null;
     return {
@@ -361,7 +439,22 @@ export class AdminService {
     if (!rev) throw new NotFoundException('版本记录不存在');
     if (rev.oldValue == null) throw new BadRequestException('该记录没有旧值可回滚');
 
-    if (rev.timelineId) {
+    if (rev.field.startsWith('custom:')) {
+      // 自定义字段回滚：写回旧值；旧值为空表示该键当时不存在 → 删除
+      if (!rev.competitionId) throw new BadRequestException('该记录没有关联对象');
+      const key = rev.field.slice('custom:'.length);
+      if (rev.oldValue.trim()) {
+        await this.prisma.competitionCustomField.upsert({
+          where: { competitionId_key: { competitionId: rev.competitionId, key } },
+          create: { competitionId: rev.competitionId, key, value: rev.oldValue },
+          update: { value: rev.oldValue },
+        });
+      } else {
+        await this.prisma.competitionCustomField.deleteMany({
+          where: { competitionId: rev.competitionId, key },
+        });
+      }
+    } else if (rev.timelineId) {
       const tl = await this.prisma.competitionTimeline.findUnique({ where: { id: rev.timelineId } });
       if (!tl) throw new NotFoundException('时间节点已不存在');
       const d = new Date(rev.oldValue);
@@ -371,7 +464,14 @@ export class AdminService {
         data: rev.field === 'endAt' ? { endAt: d, isLocked: true } : { startAt: d, isLocked: true },
       });
     } else if (rev.competitionId) {
-      const value: string | boolean | null = rev.field === 'isBonusEligible' ? rev.oldValue.toLowerCase() === 'true' : rev.oldValue;
+      let value: string | boolean | number = rev.oldValue;
+      if (rev.field === 'isBonusEligible') value = rev.oldValue.toLowerCase() === 'true';
+      // Int 字段：Prisma 不接受字符串，需转回数字
+      else if (rev.field === 'year') {
+        const y = Number(rev.oldValue);
+        if (!Number.isInteger(y)) throw new BadRequestException('旧值不是合法年份');
+        value = y;
+      }
       await this.prisma.competition.update({
         where: { id: rev.competitionId },
         data: { [rev.field]: value } as never,

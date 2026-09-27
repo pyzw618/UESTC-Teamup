@@ -1,6 +1,5 @@
 import { BadRequestException, Injectable, NotFoundException } from '@nestjs/common';
 import { PrismaService } from '../../common/prisma.service';
-import { RedisService } from '../../common/redis.service';
 import { NotificationService } from '../notification/notification.service';
 
 /** 允许纠错的字段（竞赛详情页每个字段旁的「报告错误」入口） */
@@ -17,22 +16,14 @@ const CORRECTABLE_FIELDS: Record<string, 'text' | 'date'> = {
 /** URL 类字段：提交时必须校验 scheme，阻止 javascript: 等存储型 XSS */
 const URL_FIELDS = new Set(['officialUrl', 'sourceUrl']);
 
-/** 纠错提交限流：每分钟上限 */
-const CORRECTION_RATE_LIMIT = 5;
-
 @Injectable()
 export class CorrectionsService {
   constructor(
     private readonly prisma: PrismaService,
     private readonly notify: NotificationService,
-    private readonly redis: RedisService,
   ) {}
 
   async submit(reporterId: string, competitionId: string, dto: { field: string; proposedValue?: string; note?: string }) {
-    // UGC 限流：5 条/分钟（M14）
-    const hits = await this.redis.incrWithTtl(`rl:correction:submit:${reporterId}`, 60);
-    if (hits > CORRECTION_RATE_LIMIT) throw new BadRequestException('操作太频繁，请稍后再试');
-
     const competition = await this.prisma.competition.findUnique({ where: { id: competitionId } });
     if (!competition) throw new NotFoundException('竞赛不存在');
 

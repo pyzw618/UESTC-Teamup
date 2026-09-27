@@ -1,4 +1,4 @@
-import { Global, Injectable, Logger, Module } from '@nestjs/common';
+import { Global, Injectable, Module } from '@nestjs/common';
 import { type MailProvider, type MailMessage } from './mail-provider.interface';
 import { ConsoleDevProvider } from './console-dev.provider';
 import { QqSmtpProvider } from './qq-smtp.provider';
@@ -15,19 +15,15 @@ export class MailService {
       return;
     }
     /**
-     * 【阶段措施】当前阶段不实装真实发信（属路线图），因此**不再** fail-fast，
-     * 生产环境用 console provider 时打 WARN 后照常启动——否则部署无法完成。
-     *
-     * 已知风险：此模式下验证码只写入服务端日志（见 ConsoleDevProvider），
-     * 能读取日志者即可为任意邮箱取码登录，故生产日志必须按「等同凭据」的级别管控访问。
-     *
-     * 退出条件：实装 QqSmtpProvider 并设 MAIL_PROVIDER=qq 后，本分支不再被走到，
-     * 届时请把这段告警改为启动即拒绝（fail-fast）。
+     * 2026-09-27 安全收敛（docs/UESTC-TeamUp_main_issues.md A2）：
+     * 生产环境直接拒绝以 console provider 启动 —— console 模式下验证码只写入服务端日志，
+     * 「日志读取权限 ≈ 任意账号登录权限」，不能作为生产兜底。
+     * 生产部署必须配置 MAIL_PROVIDER=qq（或其他真实 provider）。
      */
     if (process.env.NODE_ENV === 'production') {
-      new Logger('Mail').warn(
-        '生产环境正在使用 console 邮件通道（阶段措施）：验证码仅写入服务端日志，未真实发信。' +
-          '日志访问权限等同账号登录权限，请严格管控；正式上线前请实装 SMTP 并设 MAIL_PROVIDER=qq。',
+      throw new Error(
+        '[mail] 生产环境禁止 MAIL_PROVIDER=console：验证码会写入服务端日志（等同登录凭据）。' +
+          '请配置真实邮件 provider（如 MAIL_PROVIDER=qq 及对应 SMTP 授权码）后启动。',
       );
     }
     this.provider = consoleDev;

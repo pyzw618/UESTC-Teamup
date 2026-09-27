@@ -23,7 +23,12 @@ export function lastDevPayload(): Record<string, unknown> | undefined {
   return lastDev;
 }
 
-async function request<T>(path: string, options: RequestInit = {}): Promise<T> {
+/** 请求附加选项：silent401 = 401 时不触发全局跳登录（由调用方自行渲染登录引导，如公开名片的子区块） */
+export interface RequestOptions {
+  silent401?: boolean;
+}
+
+async function request<T>(path: string, options: RequestInit = {}, extra?: RequestOptions): Promise<T> {
   const res = await fetch(`/api${path}`, {
     credentials: 'include',
     headers: options.body ? { 'Content-Type': 'application/json' } : undefined,
@@ -39,7 +44,7 @@ async function request<T>(path: string, options: RequestInit = {}): Promise<T> {
 
   if (!res.ok || !body || body.code !== 0) {
     // 会话失效全局处理；排除 /auth/* 本身（游客 bootstrap /auth/me 与登录流程的 401 属正常业务，不应触发跳转）
-    if (res.status === 401 && unauthorizedHandler && !path.startsWith('/auth/')) {
+    if (res.status === 401 && unauthorizedHandler && !path.startsWith('/auth/') && !extra?.silent401) {
       try {
         unauthorizedHandler(path);
       } catch {
@@ -53,20 +58,20 @@ async function request<T>(path: string, options: RequestInit = {}): Promise<T> {
 }
 
 export const api = {
-  get<T>(path: string): Promise<T> {
-    return request<T>(path);
+  get<T>(path: string, extra?: RequestOptions): Promise<T> {
+    return request<T>(path, {}, extra);
   },
-  post<T>(path: string, data?: unknown): Promise<T> {
-    return request<T>(path, { method: 'POST', body: data ? JSON.stringify(data) : undefined });
+  post<T>(path: string, data?: unknown, extra?: RequestOptions): Promise<T> {
+    return request<T>(path, { method: 'POST', body: data ? JSON.stringify(data) : undefined }, extra);
   },
-  put<T>(path: string, data?: unknown): Promise<T> {
-    return request<T>(path, { method: 'PUT', body: data ? JSON.stringify(data) : undefined });
+  put<T>(path: string, data?: unknown, extra?: RequestOptions): Promise<T> {
+    return request<T>(path, { method: 'PUT', body: data ? JSON.stringify(data) : undefined }, extra);
   },
-  patch<T>(path: string, data?: unknown): Promise<T> {
-    return request<T>(path, { method: 'PATCH', body: data ? JSON.stringify(data) : undefined });
+  patch<T>(path: string, data?: unknown, extra?: RequestOptions): Promise<T> {
+    return request<T>(path, { method: 'PATCH', body: data ? JSON.stringify(data) : undefined }, extra);
   },
-  delete<T>(path: string): Promise<T> {
-    return request<T>(path, { method: 'DELETE' });
+  delete<T>(path: string, extra?: RequestOptions): Promise<T> {
+    return request<T>(path, { method: 'DELETE' }, extra);
   },
 };
 

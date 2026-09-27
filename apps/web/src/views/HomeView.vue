@@ -200,6 +200,8 @@ function reload() {
                   :deadline="t.deadline"
                   :needed-roles="t.neededRoles"
                   :competition="t.competition"
+                  :member-count="t.memberCount"
+                  :intent-count="t.intentCount"
                   :team-id="t.id"
                 />
               </router-link>

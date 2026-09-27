@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { ref, onMounted, computed } from 'vue';
 import { useRoute, useRouter } from 'vue-router';
-import { ElMessage } from 'element-plus';
+import { ElMessage, ElMessageBox } from 'element-plus';
 import { Audience, CompetitionFormat, Level, LevelLabel, PublishStatus } from '@teamup/shared';
 import { api } from '../../api/client';
 
@@ -13,6 +13,7 @@ const saving = ref(false);
 
 const form = ref({
   name: '',
+  year: new Date().getFullYear() as number | null,
   aliases: [] as string[],
   organizer: '',
   officialUrl: '',
@@ -32,6 +33,13 @@ const form = ref({
   tags: [] as string[],
   timelines: [] as { id?: string; stage: string; level: Level | null; startAt: string | null; endAt: string | null }[],
 });
+
+/** Issue 2：竞赛自定义键值字段（保存即生效，进入版本留痕可回滚） */
+interface CustomFieldRow { id: string; key: string; value: string }
+const customFields = ref<CustomFieldRow[]>([]);
+const newFieldKey = ref('');
+const newFieldValue = ref('');
+const newFieldSaving = ref(false);
 
 const levelOptions = Object.values(Level).map((l) => ({ value: l, label: LevelLabel[l] }));
 
@@ -62,6 +70,7 @@ onMounted(async () => {
    */
   form.value = {
     name: c.name ?? '',
+    year: c.year ?? new Date().getFullYear(),
     aliases: Array.isArray(c.aliases) ? c.aliases : [],
     organizer: c.organizer ?? '',
     officialUrl: c.officialUrl ?? '',
@@ -87,7 +96,71 @@ onMounted(async () => {
       endAt: t.endAt ? t.endAt.slice(0, 16) : null,
     })),
   };
+  customFields.value = (Array.isArray(c.customFields) ? c.customFields : []).map((f: { id: string; key: string; value: string }) => ({
+    id: f.id,
+    key: f.key,
+    value: f.value,
+  }));
 });
+
+// ---------- 自定义字段（Issue 2） ----------
+
+async function addCustomField() {
+  if (!isEdit.value) {
+    ElMessage.warning('请先保存竞赛，再为它添加补充字段');
+    return;
+  }
+  if (!newFieldKey.value.trim() || !newFieldValue.value.trim()) {
+    ElMessage.warning('请填写字段名与字段值');
+    return;
+  }
+  newFieldSaving.value = true;
+  try {
+    const created = await api.put<{ id: string; key: string; value: string }>(
+      `/admin/competitions/${route.params.id}/fields`,
+      { key: newFieldKey.value.trim(), value: newFieldValue.value.trim() },
+    );
+    const existing = customFields.value.find((f) => f.key === created.key);
+    if (existing) existing.value = created.value;
+    else customFields.value.push({ id: created.id, key: created.key, value: created.value });
+    newFieldKey.value = '';
+    newFieldValue.value = '';
+    ElMessage.success('字段已保存（已记录版本，可回滚）');
+  } catch (e) {
+    ElMessage.error(e instanceof Error ? e.message : '保存失败');
+  } finally {
+    newFieldSaving.value = false;
+  }
+}
+
+/** 编辑已有字段：失焦或点保存时提交 */
+async function saveCustomField(row: CustomFieldRow) {
+  try {
+    const updated = await api.put<{ id: string; key: string; value: string }>(
+      `/admin/competitions/${route.params.id}/fields`,
+      { key: row.key, value: row.value },
+    );
+    row.value = updated.value;
+    ElMessage.success(`「${row.key}」已更新`);
+  } catch (e) {
+    ElMessage.error(e instanceof Error ? e.message : '保存失败');
+  }
+}
+
+async function removeCustomField(row: CustomFieldRow) {
+  try {
+    await ElMessageBox.confirm(`删除补充字段「${row.key}」？删除记录会进入版本历史，可回滚恢复。`, '删除字段', { type: 'warning' });
+  } catch {
+    return;
+  }
+  try {
+    await api.delete(`/admin/competitions/${route.params.id}/fields/${encodeURIComponent(row.key)}`);
+    customFields.value = customFields.value.filter((f) => f.id !== row.id);
+    ElMessage.success('已删除');
+  } catch (e) {
+    ElMessage.error(e instanceof Error ? e.message : '删除失败');
+  }
+}
 
 function addTimeline() {
   form.value.timelines.push({ stage: '', level: null, startAt: null, endAt: null });
@@ -103,6 +176,7 @@ async function save() {
     // S5：显式列出可写字段（原来 `...form.value` 会把只读字段一并回传）
     const payload = {
       name: form.value.name.trim(),
+      year: form.value.year ?? undefined,
       aliases: form.value.aliases.filter((a) => a.trim()),
       organizer: form.value.organizer || undefined,
       officialUrl: form.value.officialUrl || undefined,
@@ -153,6 +227,10 @@ async function save() {
         <div>
           <div class="f-label">竞赛名称 *</div>
           <el-input v-model="form.name" placeholder="全国大学生电子设计竞赛" />
+        </div>
+        <div>
+          <div class="f-label">届次年份 *（Issue 6：同名赛事按年份建多份档案）</div>
+          <el-input-number v-model="form.year" :min="2000" :max="2100" controls-position="right" style="width: 100%" />
         </div>
         <div>
           <div class="f-label">别名（逗号分隔，用于搜索与去重）</div>
@@ -285,6 +363,34 @@ async function save() {
       <div>
         <div class="f-label">竞赛简介</div>
         <el-input v-model="form.intro" type="textarea" :rows="4" placeholder="给同学们看的介绍：比赛内容、形式、建议…" />
+      </div>
+
+      <!-- 自定义字段（Issue 2）：表达各竞赛特有信息，如数模的 QQ 交流群号 -->
+      <div class="rounded-14px p-14px" style="background: rgba(15,76,140,0.03)">
+        <div class="f-label font-bold !mb-8px">📌 补充字段（展示在竞赛详情页「补充信息」区块，修改进入版本留痕）</div>
+        <template v-if="isEdit">
+          <div class="flex flex-col gap-8px">
+            <div
+              v-for="row in customFields"
+              :key="row.id"
+              class="flex items-center gap-8px"
+            >
+              <el-tag size="small" effect="plain" class="shrink-0" style="min-width: 90px; justify-content: center">{{ row.key }}</el-tag>
+              <el-input v-model="row.value" maxlength="500" @change="saveCustomField(row)" />
+              <el-button type="primary" plain size="small" @click="saveCustomField(row)">保存</el-button>
+              <el-button type="danger" plain circle size="small" @click="removeCustomField(row)">
+                <el-icon><i-ep-delete /></el-icon>
+              </el-button>
+            </div>
+            <div class="flex items-center gap-8px mt-4px">
+              <el-input v-model="newFieldKey" placeholder="字段名（如：QQ 交流群）" maxlength="30" style="width: 200px" />
+              <el-input v-model="newFieldValue" placeholder="字段值（纯文本，最长 500 字）" maxlength="500" />
+              <el-button type="primary" :loading="newFieldSaving" @click="addCustomField">添加</el-button>
+            </div>
+            <div class="text-12px color-ink-faint">字段名支持中文 / 字母 / 数字 / 下划线 / 连字符；值为纯文本，前台展示自动转义</div>
+          </div>
+        </template>
+        <div v-else class="text-13px color-ink-faint">竞赛保存后即可添加补充字段</div>
       </div>
 
       <div>

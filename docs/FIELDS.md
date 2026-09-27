@@ -94,7 +94,7 @@
 | UI | UI |
 | PAPER | 论文 |
 | DEFENSE | 答辩 |
-| OTHER | 其他(可以手动输入) |
+| OTHER | 其他（固定枚举标签，不支持自定义输入；个性化方向写在 requirement 字段） |
 
 ### PublishStatus（发布状态）
 

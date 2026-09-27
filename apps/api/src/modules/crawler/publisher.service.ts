@@ -205,6 +205,8 @@ export class PublisherService {
       if (!existing) {
         const data: Prisma.CompetitionUncheckedCreateInput = {
           name: canonicalName,
+          // 届次（Issue 6）：采集入库默认记当前年份届次
+          year: new Date().getFullYear(),
           aliases: [],
           status: 'DRAFT',
         };

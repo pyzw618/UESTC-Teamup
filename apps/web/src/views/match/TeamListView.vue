@@ -192,6 +192,7 @@ onMounted(async () => {
             :needed-roles="t.neededRoles"
             :member-count="t.memberCount"
             :target-size="t.targetSize"
+            :intent-count="t.intentCount"
             :comment-count="t.commentCount"
             :expired="t.expired"
             :team-id="t.id"

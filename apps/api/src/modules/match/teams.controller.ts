@@ -1,4 +1,4 @@
-import { Body, Controller, Get, HttpException, HttpStatus, Param, Patch, Post, Query, Req } from '@nestjs/common';
+import { Body, Controller, Delete, Get, Param, Patch, Post, Query } from '@nestjs/common';
 import {
   IsArray,
   IsDateString,
@@ -15,10 +15,8 @@ import {
 import { Type } from 'class-transformer';
 import { RoleType, TeamGoal, TeamStatus } from '@teamup/shared';
 import { TransformStringArray } from '../../common/query.transform';
-import { RedisService } from '../../common/redis.service';
-import { CurrentUser } from '../../common/auth/decorators';
+import { CurrentUser, Public } from '../../common/auth/decorators';
 import type { User } from '@prisma/client';
-import type { Request } from 'express';
 import { TeamsService, type UpsertTeamInput, type ManualTeamStatus } from './teams.service';
 
 class UpsertTeamDto {
@@ -46,7 +44,7 @@ class ListTeamsDto {
   @IsOptional() @IsString() competitionId?: string;
   @IsOptional() @TransformStringArray() roles?: RoleType[];
   @IsOptional() @IsEnum(TeamGoal) goal?: TeamGoal;
-  @IsOptional() @TransformStringArray() statuses?: TeamStatus[];
+  // 可见性收敛（Issue 4）：公开列表固定只返回 RECRUITING，不再接受 statuses 参数
   @IsOptional() @IsIn(['DEADLINE', 'LATEST']) sort?: 'DEADLINE' | 'LATEST';
   @IsOptional() @IsDateString() postedFrom?: string;
   @IsOptional() @IsDateString() postedTo?: string;
@@ -55,26 +53,21 @@ class ListTeamsDto {
 }
 
 class SetStatusDto {
-  @IsEnum(TeamStatus) status!: TeamStatus;
+  @IsEnum(TeamStatus) status!: 'RECRUITING' | 'FULL' | 'DISBANDED';
 }
 
 @Controller('teams')
 export class TeamsController {
-  constructor(
-    private readonly teams: TeamsService,
-    private readonly redis: RedisService,
-  ) {}
+  constructor(private readonly teams: TeamsService) {}
 
+  /** 发现列表（登录可见，A3 匿名边界）：固定只返回「招募中」（Issue 4） */
   @Get()
-  async list(@CurrentUser() user: User, @Req() req: Request, @Query() query: ListTeamsDto) {
-    // 防批量爬取：列表 30 次/分钟（登录用户按 id，未登录按 IP）
-    await this.rateLimit(`rl:team:list:${user?.id ?? req.ip}`, 30, 60);
+  list(@Query() query: ListTeamsDto) {
     return this.teams.list({
       ...query,
       page: Number(query.page) || 1,
       pageSize: Number(query.pageSize) || 12,
       roles: query.roles as RoleType[],
-      statuses: query.statuses as TeamStatus[],
     });
   }
 
@@ -88,10 +81,13 @@ export class TeamsController {
     return this.teams.create(user.id, this.toInput(dto));
   }
 
+  /**
+   * 详情公开（游客可看帖子壳与组队意愿计数；联系方式 / 招募正文按登录与意愿状态在服务端裁剪）。
+   * 非「招募中」帖子仅发布者与管理员可访问，其他人得到 404（Issue 4）。
+   */
+  @Public()
   @Get(':id')
-  async detail(@CurrentUser() user: User, @Req() req: Request, @Param('id') id: string) {
-    // 防批量爬取：详情 60 次/分钟（登录用户按 id，未登录按 IP）
-    await this.rateLimit(`rl:team:detail:${user?.id ?? req.ip}`, 60, 60);
+  detail(@CurrentUser() user: User | undefined, @Param('id') id: string) {
     return this.teams.detail(id, user?.id, user?.role);
   }
 
@@ -106,10 +102,18 @@ export class TeamsController {
     return this.teams.setStatus(user.id, id, dto.status as ManualTeamStatus);
   }
 
-  /** Redis 计数限流：窗口内超限抛 429 */
-  private async rateLimit(key: string, limit: number, ttlSeconds: number) {
-    const hits = await this.redis.incrWithTtl(key, ttlSeconds);
-    if (hits > limit) throw new HttpException('请求过于频繁，请稍后再试', HttpStatus.TOO_MANY_REQUESTS);
+  // ==================================================================
+  // 组队意愿（Issue 1）：点击「我想组队」登记一条，可撤销；联系人据此解锁联系方式
+  // ==================================================================
+
+  @Post(':id/intent')
+  registerIntent(@CurrentUser() user: User, @Param('id') id: string) {
+    return this.teams.registerIntent(id, user.id);
+  }
+
+  @Delete(':id/intent')
+  revokeIntent(@CurrentUser() user: User, @Param('id') id: string) {
+    return this.teams.revokeIntent(id, user.id);
   }
 
   private toInput(dto: UpsertTeamDto): UpsertTeamInput {

@@ -96,7 +96,7 @@ export class UsersService {
     return this.myProfile(userId);
   }
 
-  /** 公开名片 */
+  /** 公开名片。2026-09-27 隐私收敛（A1）：不含 studentNo，校园身份由校园邮箱验证表达 */
   async publicCard(id: string) {
     const user = await this.prisma.user.findUnique({
       where: { id },
@@ -111,26 +111,37 @@ export class UsersService {
       grade: user.grade,
       major: user.major,
       bio: user.bio,
-      studentNo: user.studentNo,
       skills: user.skills,
       teamIds: [],
     });
   }
 
-  /** 名片上的"发布的招募帖"（招募中/已参赛） */
+  /**
+   * 名片上的「TA 发布的招募帖」（B4 文案与查询语义对齐：这里返回的是该用户作为队长发布的帖子，
+   * 不是「正在参与的队伍」——广告牌模式下平台没有真实成员关系）。
+   * 只返回「招募中」的帖子（Issue 4：非招募状态仅发布者与管理员可见）。
+   */
   async publicTeams(id: string) {
     const led = await this.prisma.team.findMany({
-      where: { leaderId: id, status: { in: ['RECRUITING', 'COMPETING'] } },
+      where: { leaderId: id, status: 'RECRUITING' },
       select: {
         id: true,
         goal: true,
         status: true,
         competition: { select: { id: true, name: true } },
+        _count: { select: { members: true, intents: true } },
       },
       take: 10,
       orderBy: { createdAt: 'desc' },
     });
-    return led;
+    return led.map((t) => ({
+      id: t.id,
+      goal: t.goal,
+      status: t.status,
+      competition: t.competition,
+      memberCount: 1 + t._count.members,
+      intentCount: t._count.intents,
+    }));
   }
 
   /** 管理员：用户列表 */

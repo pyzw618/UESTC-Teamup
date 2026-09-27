@@ -30,6 +30,15 @@ const correctionSubmitting = ref(false);
 const recruitingTeams = ref<TeamSummary[]>([]);
 const recruitingTeamsCount = ref(0);
 
+/** 竞赛信息反馈（Issue 5：双入口之一，自动附带竞赛 id，服务端记录提交时名称快照） */
+const feedbackVisible = ref(false);
+const feedbackContent = ref('');
+const feedbackContact = ref('');
+const feedbackSubmitting = ref(false);
+
+/** 同名赛事的其他届次（Issue 6 年份切换） */
+const editions = computed(() => comp.value?.editions ?? []);
+
 const nextDeadline = computed(() => {
   const signup = comp.value?.timelines.filter((t) => (t.stage || '').includes('报名') && t.endAt).sort((a, b) => new Date(a.endAt!).getTime() - new Date(b.endAt!).getTime());
   return signup?.[0]?.endAt ?? null;
@@ -132,6 +141,37 @@ async function submitCorrection() {
   }
 }
 
+// ---------- 竞赛信息反馈（Issue 5） ----------
+
+function openFeedback() {
+  feedbackContent.value = '';
+  feedbackContact.value = '';
+  feedbackVisible.value = true;
+}
+
+async function submitFeedback() {
+  if (!feedbackContent.value.trim()) {
+    ElMessage.warning('请填写反馈内容');
+    return;
+  }
+  feedbackSubmitting.value = true;
+  try {
+    await api.post('/feedback', {
+      type: 'COMPETITION_INFO',
+      competitionId: comp.value!.id,
+      pagePath: route.fullPath,
+      content: feedbackContent.value,
+      contact: feedbackContact.value || undefined,
+    });
+    feedbackVisible.value = false;
+    ElMessage.success('反馈已提交，运营同学会尽快核实，感谢贡献！');
+  } catch (e) {
+    ElMessage.error(e instanceof Error ? e.message : '提交失败');
+  } finally {
+    feedbackSubmitting.value = false;
+  }
+}
+
 </script>
 
 <template>
@@ -152,8 +192,24 @@ async function submitCorrection() {
                 ⏳ {{ deadlineChipText }}
               </span>
             </div>
-            <h1 class="text-24px md:text-28px font-extrabold m-0 color-ink leading-tight">{{ comp.name }}</h1>
-            <div v-if="comp.aliases?.length" class="text-13px color-ink-faint mt-4px">别名：{{ comp.aliases.join(' · ') }}</div>
+            <h1 class="text-24px md:text-28px font-extrabold m-0 color-ink leading-tight">
+              {{ comp.name }}
+              <span v-if="comp.year" class="text-14px font-bold align-middle ml-6px chip" style="background: rgba(15,76,140,0.08); color: var(--uestc-blue)">{{ comp.year }} 届</span>
+            </h1>
+            <div class="flex items-center gap-8px flex-wrap mt-4px">
+              <div v-if="comp.aliases?.length" class="text-13px color-ink-faint">别名：{{ comp.aliases.join(' · ') }}</div>
+              <!-- Issue 6：同名赛事多届次切换 -->
+              <el-select
+                v-if="editions.length"
+                size="small"
+                :model-value="comp.id"
+                style="width: 130px"
+                @change="(id: string) => router.push(`/competitions/${id}`)"
+              >
+                <el-option :value="comp.id" :label="`${comp.year} 届（当前）`" />
+                <el-option v-for="e in editions" :key="e.id" :value="e.id" :label="`${e.year} 届`" />
+              </el-select>
+            </div>
             <div v-if="comp.tags?.length" class="flex gap-6px flex-wrap mt-8px">
               <el-tag v-for="t in comp.tags" :key="t" size="small" effect="plain" round>{{ t }}</el-tag>
             </div>
@@ -170,6 +226,7 @@ async function submitCorrection() {
           <template v-if="comp.sourceUrl && hrefHost(comp.sourceUrl)">
             · 信息来源：<a :href="safeHref(comp.sourceUrl)" target="_blank" rel="noopener noreferrer" class="color-uestc-500">{{ hrefHost(comp.sourceUrl) }} ↗</a>
           </template>
+          · <el-button link size="small" class="!text-12px" @click="openFeedback">反馈信息问题</el-button>
         </div>
       </section>
 
@@ -266,6 +323,17 @@ async function submitCorrection() {
         <p class="text-14px leading-relaxed color-ink-soft m-0 whitespace-pre-wrap">{{ comp.intro }}</p>
       </section>
 
+      <!-- 补充信息（Issue 2：竞赛自定义键值字段，展示时文本插值自动转义防 XSS） -->
+      <section v-if="comp.customFields?.length" class="glass p-20px">
+        <h2 class="text-15px font-bold m-0 mb-10px">📌 补充信息</h2>
+        <div class="grid grid-cols-1 md:grid-cols-2 gap-x-24px gap-y-8px text-13px">
+          <div v-for="f in comp.customFields" :key="f.id" class="flex gap-8px items-baseline py-4px border-b border-rgba(15,76,140,0.06)">
+            <span class="info-label shrink-0">{{ f.key }}</span>
+            <span class="color-ink whitespace-pre-wrap break-all">{{ f.value }}</span>
+          </div>
+        </div>
+      </section>
+
       <!-- 正在招募的队伍（两模块联动的另一半；招募信息仅登录可见） -->
       <section class="glass p-20px">
         <div class="flex items-center justify-between mb-12px">
@@ -287,6 +355,7 @@ async function submitCorrection() {
                 :needed-roles="t.neededRoles"
                 :member-count="t.memberCount"
                 :target-size="t.targetSize"
+                :intent-count="t.intentCount"
                 :team-id="t.id"
               />
             </router-link>
@@ -353,6 +422,30 @@ async function submitCorrection() {
       <template #footer>
         <el-button @click="correctionVisible = false">取消</el-button>
         <el-button type="primary" :loading="correctionSubmitting" @click="submitCorrection">提交纠错</el-button>
+      </template>
+    </el-dialog>
+
+    <!-- 竞赛信息反馈弹窗（Issue 5：自动附带竞赛名，游客可提交） -->
+    <el-dialog v-model="feedbackVisible" title="反馈竞赛信息问题" width="440px">
+      <div class="flex flex-col gap-14px">
+        <div class="text-13px color-ink-soft">
+          反馈对象：<b class="color-ink">{{ comp?.name }}</b>
+          <span class="text-12px color-ink-faint ml-4px">（提交时会自动记录竞赛名快照）</span>
+        </div>
+        <el-input
+          v-model="feedbackContent"
+          type="textarea"
+          :rows="4"
+          maxlength="2000"
+          show-word-limit
+          placeholder="请描述信息问题，例如：报名截止时间与官网不一致、级别标注有误…"
+        />
+        <el-input v-model="feedbackContact" maxlength="100" placeholder="回访联系方式（选填），如 QQ / 微信 / 邮箱" />
+        <div class="text-12px color-ink-faint">若只是某个字段数值错误，推荐用各字段旁的「纠错」入口，处理更快</div>
+      </div>
+      <template #footer>
+        <el-button @click="feedbackVisible = false">取消</el-button>
+        <el-button type="primary" :loading="feedbackSubmitting" @click="submitFeedback">提交反馈</el-button>
       </template>
     </el-dialog>
   </div>

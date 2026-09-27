@@ -458,12 +458,21 @@ async function main() {
   console.log('写入竞赛清单（56 项认定 + 3 项追加）…');
   const compIds: Record<string, string> = {};
 
+  /** 届次年份（Issue 6）：取种子时间轴最早年份，无时间轴用当前年份 */
+  const editionYear = (timelines?: { startAt: string | null; endAt: string | null }[]): number => {
+    const years = (timelines ?? [])
+      .map((t) => new Date(t.startAt ?? t.endAt ?? '').getUTCFullYear())
+      .filter((y) => Number.isInteger(y));
+    return years.length ? Math.min(...years) : new Date().getFullYear();
+  };
+
   // 1) 认定清单基础条目
   for (const name of bonusFile.competitions) {
     const enriched = ENRICHED[name];
     const comp = await prisma.competition.create({
       data: {
         name,
+        year: editionYear(enriched?.timelines),
         aliases: enriched?.aliases ?? [],
         organizer: enriched?.organizer,
         officialUrl: enriched?.officialUrl,
@@ -493,6 +502,7 @@ async function main() {
     const comp = await prisma.competition.create({
       data: {
         name: e.name,
+        year: editionYear(e.timelines),
         aliases: e.aliases ?? [],
         difficulty: e.difficulty,
         effort: e.effort,

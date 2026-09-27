@@ -14,10 +14,12 @@ const props = withDefaults(defineProps<{
   deadline?: string | null;
   /** 期望招募的方向（neededRoles，卡片标签主体） */
   neededRoles?: string[];
-  /** 已有成员数量（手填成员行数） */
+  /** 已有人数（含队长本人，B1 口径） */
   memberCount?: number;
-  /** 计划招募人数 */
+  /** 计划招募人数（含队长本人） */
   targetSize?: number | null;
+  /** 已登记「我想组队」的人数（Issue 1） */
+  intentCount?: number;
   /** 评论数（可选展示） */
   commentCount?: number;
   competition?: { id: string; name: string };
@@ -102,6 +104,7 @@ async function submitReport() {
       <span v-if="deadlineText" class="tcm-chip" :class="deadlineHot ? 'is-urgent' : 'is-muted'">
         ⏱ {{ deadlineText }}
       </span>
+      <span v-if="intentCount" class="tcm-chip is-intent">🙋 {{ intentCount }} 人想组队</span>
       <span v-if="commentCount" class="tcm-chip is-muted">💬 {{ commentCount }}</span>
     </div>
 
@@ -195,6 +198,7 @@ async function submitReport() {
   background: rgba(15, 76, 140, 0.06);
 }
 .tcm-chip.is-urgent { background: rgba(217, 60, 60, 0.1); color: #c0392b; }
+.tcm-chip.is-intent { background: rgba(92, 58, 158, 0.1); color: #5c3a9e; font-weight: 600; }
 .tcm-chip.is-muted { background: rgba(0, 0, 0, 0.045); color: var(--ink-soft, #5d6670); font-weight: 500; }
 
 /* ---- 招募方向：卡片主体标签，实心蓝底更醒目 ---- */

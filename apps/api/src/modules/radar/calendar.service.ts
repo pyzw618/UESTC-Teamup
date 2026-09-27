@@ -7,17 +7,21 @@ export class CalendarService {
   constructor(private readonly prisma: PrismaService) {}
 
   /** 区间内的时间节点（FullCalendar 数据源）；按级别配色由前端处理 */
-  async range(query: { start?: string; end?: string; levels?: string[] }) {
+  async range(query: { start?: string; end?: string; levels?: string[]; year?: number }) {
     const start = query.start ? new Date(query.start) : new Date(Date.now() - 30 * 86400_000);
     const end = query.end ? new Date(query.end) : new Date(Date.now() + 120 * 86400_000);
 
     const rows = await this.prisma.competitionTimeline.findMany({
       where: {
         OR: [{ startAt: { lte: end, gte: start } }, { endAt: { lte: end, gte: start } }, { startAt: { lte: start }, endAt: { gte: end } }],
-        competition: { status: 'PUBLISHED' },
+        competition: {
+          status: 'PUBLISHED',
+          // 届次筛选（Issue 6）：传入 year 时只看该届竞赛的节点
+          ...(query.year ? { year: query.year } : {}),
+        },
         ...(query.levels?.length ? { level: { in: query.levels as never[] } } : {}),
       },
-      include: { competition: { select: { id: true, name: true, levels: true } } },
+      include: { competition: { select: { id: true, name: true, levels: true, year: true } } },
       orderBy: { startAt: 'asc' },
       take: 500,
     });
@@ -26,6 +30,7 @@ export class CalendarService {
       id: t.id,
       competitionId: t.competition.id,
       competitionName: t.competition.name,
+      competitionYear: t.competition.year,
       stage: t.stage,
       level: t.level,
       competitionLevels: t.competition.levels.map((l) => l.level),

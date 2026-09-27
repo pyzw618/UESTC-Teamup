@@ -5,9 +5,14 @@ import { api } from '../../api/client';
 import { fmtDate, type TeamListItem } from '../../api/types';
 import TeamCardMeta from '../../components/TeamCardMeta.vue';
 
+interface MyTeamItem extends TeamListItem {
+  /** B2：所属竞赛为手动新建的 DRAFT（待审核），招募帖暂不可被发现 */
+  competitionPending?: boolean;
+}
+
 const router = useRouter();
 
-const teams = ref<TeamListItem[]>([]);
+const teams = ref<MyTeamItem[]>([]);
 const loading = ref(true);
 
 /** 归档仓库：已解散的帖子 */
@@ -16,7 +21,7 @@ const active = computed(() => teams.value.filter((t) => t.status !== 'DISBANDED'
 
 onMounted(async () => {
   try {
-    teams.value = await api.get<TeamListItem[]>('/teams/me/teams');
+    teams.value = await api.get<MyTeamItem[]>('/teams/me/teams');
   } finally {
     loading.value = false;
   }
@@ -34,9 +39,15 @@ onMounted(async () => {
         class="glass glass-hover p-16px cursor-pointer"
         @click="router.push(`/teams/${t.id}`)"
       >
-        <div class="flex items-center justify-between mb-8px">
+        <div class="flex items-center justify-between mb-8px gap-8px">
           <span class="text-14px font-bold color-uestc-600 truncate">{{ t.competition.name }}</span>
-          <el-tag size="small" effect="plain" round>我发布的</el-tag>
+          <span class="shrink-0 flex gap-6px items-center">
+            <el-tag v-if="t.competitionPending" size="small" effect="plain" round type="warning">竞赛待审核</el-tag>
+            <el-tag size="small" effect="plain" round>我发布的</el-tag>
+          </span>
+        </div>
+        <div v-if="t.competitionPending" class="text-12px mb-8px" style="color: #8a5800">
+          ⏳ 新竞赛正在等待管理员审核，审核发布前这条招募不会出现在公共发现列表
         </div>
         <TeamCardMeta
           :leader="t.leader"
@@ -46,6 +57,7 @@ onMounted(async () => {
           :needed-roles="t.neededRoles"
           :member-count="t.memberCount"
           :target-size="t.targetSize"
+          :intent-count="t.intentCount"
           :comment-count="t.commentCount"
           :expired="t.expired"
           :team-id="t.id"
@@ -81,6 +93,7 @@ onMounted(async () => {
             :needed-roles="t.neededRoles"
             :member-count="t.memberCount"
             :target-size="t.targetSize"
+            :intent-count="t.intentCount"
             :comment-count="t.commentCount"
             :expired="t.expired"
             :team-id="t.id"

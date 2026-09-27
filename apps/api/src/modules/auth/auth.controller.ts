@@ -53,12 +53,6 @@ class ResetPasswordDto {
   newPassword!: string;
 }
 
-function clientIp(req: Request): string {
-  // main.ts 设置了 trust proxy=1：Express 会从 X-Forwarded-For 右侧取第一个不可信地址，
-  // 直接信任 req.ip，避免客户端伪造 XFF 左侧值绕过 IP 限流。
-  return req.ip ?? 'unknown';
-}
-
 /** 登录成功后的统一用户视图（含 hasPassword 引导前端） */
 function authUserView(user: User) {
   return {
@@ -85,8 +79,8 @@ export class AuthController {
   @Public()
   @Post('send-code')
   @HttpCode(200)
-  async sendCode(@Body() dto: SendCodeDto, @Req() req: Request) {
-    const { devCode } = await this.auth.sendCode(dto.email.toLowerCase(), clientIp(req));
+  async sendCode(@Body() dto: SendCodeDto) {
+    const { devCode } = await this.auth.sendCode(dto.email.toLowerCase());
     // 无论是否已注册响应一致（防邮箱枚举）；DEV 下附 dev.devCode 供联调
     return devCode ? { dev: { devCode }, message: '验证码已发送' } : { message: '验证码已发送' };
   }
@@ -94,8 +88,8 @@ export class AuthController {
   @Public()
   @Post('login')
   @HttpCode(200)
-  async loginWithCode(@Body() dto: LoginCodeDto, @Req() req: Request, @Res({ passthrough: true }) res: Response) {
-    const { user, isNew } = await this.auth.loginWithCode(dto.email.toLowerCase(), dto.code, clientIp(req));
+  async loginWithCode(@Body() dto: LoginCodeDto, @Res({ passthrough: true }) res: Response) {
+    const { user, isNew } = await this.auth.loginWithCode(dto.email.toLowerCase(), dto.code);
     const sid = await this.sessions.create(user.id);
     setSessionCookie(res, sid);
     // 本人视角：登录瞬间直接返回完整自见视图
@@ -115,8 +109,8 @@ export class AuthController {
   @Public()
   @Post('forgot-password')
   @HttpCode(200)
-  async forgotPassword(@Body() dto: SendCodeDto, @Req() req: Request) {
-    const { devCode } = await this.auth.sendResetCode(dto.email.toLowerCase(), clientIp(req));
+  async forgotPassword(@Body() dto: SendCodeDto) {
+    const { devCode } = await this.auth.sendResetCode(dto.email.toLowerCase());
     return devCode ? { dev: { devCode }, message: '找回验证码已发送' } : { message: '若该邮箱已注册，找回验证码已发送' };
   }
 

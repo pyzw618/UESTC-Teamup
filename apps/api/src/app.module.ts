@@ -7,6 +7,7 @@ import { NotificationModule } from './modules/notification/notification.module';
 import { RadarModule } from './modules/radar/radar.module';
 import { MatchModule } from './modules/match/match.module';
 import { AdminModule } from './modules/admin/admin.module';
+import { FeedbackModule } from './modules/feedback/feedback.module';
 import { JobsModule } from './jobs/jobs.module';
 import { CrawlerModule } from './modules/crawler/crawler.module';
 
@@ -31,6 +32,7 @@ import { AuthGuard } from './common/auth/auth.guard';
     RadarModule,
     MatchModule,
     AdminModule,
+    FeedbackModule,
     JobsModule,
     CrawlerModule,
   ],

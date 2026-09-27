@@ -94,6 +94,14 @@ export enum NotificationKind {
   SOURCE_FAILING = 'SOURCE_FAILING',
   CORRECTION_NEW = 'CORRECTION_NEW',
   SYSTEM_NOTIFICATION = 'SYSTEM_NOTIFICATION',
+  /** 组队意愿：招募人收到的「某帖有 X 人想组队」聚合消息 */
+  TEAM_INTENT = 'TEAM_INTENT',
+}
+
+/** 反馈类型：全站功能反馈 / 竞赛信息纠错反馈 */
+export enum FeedbackType {
+  FUNCTION = 'FUNCTION',
+  COMPETITION_INFO = 'COMPETITION_INFO',
 }
 
 export enum RevisionOrigin {
@@ -137,15 +145,8 @@ export const TeamStatusLabel: Record<TeamStatus, string> = {
   [TeamStatus.DISBANDED]: '已解散',
 };
 
-/** 公共「找队友」列表默认只展示的状态（DISBANDED 只在归档仓库可见） */
+/** 公开发现列表只展示的状态（2026-09-27 可见性收敛：仅「招募中」；其余状态仅发布者与管理员可见） */
 export const DISCOVERABLE_TEAM_STATUSES: TeamStatus[] = [TeamStatus.RECRUITING];
-
-/** 可手动筛选展示的状态（DISBANDED 不对外） */
-export const FILTERABLE_TEAM_STATUSES: TeamStatus[] = [
-  TeamStatus.RECRUITING,
-  TeamStatus.FULL,
-  TeamStatus.COMPETING,
-];
 
 export const TeamGoalLabel: Record<TeamGoal, string> = {
   [TeamGoal.PRIZE]: '争取拿奖',
@@ -191,6 +192,12 @@ export const NotificationKindLabel: Record<NotificationKind, string> = {
   [NotificationKind.SOURCE_FAILING]: '数据源告警',
   [NotificationKind.CORRECTION_NEW]: '用户纠错',
   [NotificationKind.SYSTEM_NOTIFICATION]: '系统通知',
+  [NotificationKind.TEAM_INTENT]: '组队意愿',
+};
+
+export const FeedbackTypeLabel: Record<FeedbackType, string> = {
+  [FeedbackType.FUNCTION]: '功能问题反馈',
+  [FeedbackType.COMPETITION_INFO]: '竞赛信息反馈',
 };
 
 export const CorrectionStatusLabel: Record<CorrectionStatus, string> = {

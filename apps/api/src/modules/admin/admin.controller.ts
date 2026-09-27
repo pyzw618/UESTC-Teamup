@@ -10,11 +10,12 @@ import {
   IsOptional,
   IsString,
   Length,
+  Matches,
   Max,
   Min,
   ValidateNested,
 } from 'class-validator';
-import { Admin, CurrentUser, Public } from '../../common/auth/decorators';
+import { Admin, CurrentUser, Public, Roles } from '../../common/auth/decorators';
 import { Audience, CompetitionFormat, Level, PublishStatus } from '@prisma/client';
 import { AdminService, type UpsertCompetitionInput } from './admin.service';
 import { ReportsService } from './reports.service';
@@ -30,6 +31,8 @@ class TimelineItemDto {
 
 class CompetitionDto {
   @IsString() @Length(1, 120) name!: string;
+  /** 届次年份（Issue 6）：同一赛事按年份建多份档案 */
+  @IsOptional() @IsInt() @Min(2000) @Max(2100) year?: number;
   @IsOptional() @IsArray() @IsString({ each: true }) aliases?: string[];
   @IsOptional() @IsString() organizer?: string;
   @IsOptional() @IsString() officialUrl?: string;
@@ -68,6 +71,16 @@ class PageDto {
 class AnnouncementDto {
   @IsString() @Length(1, 60) title!: string;
   @IsString() @Length(1, 2000) content!: string;
+}
+
+/** 竞赛自定义字段（Issue 2）：键 1-30 字（中文/字母/数字/下划线/连字符），值 ≤500 字纯文本 */
+class CustomFieldDto {
+  @IsString() @Length(1, 30) @Matches(/^[\u4e00-\u9fa5A-Za-z0-9_\-\s]+$/, {
+    message: '字段名只能包含中文、字母、数字、下划线、连字符',
+  })
+  key!: string;
+
+  @IsString() @Length(1, 500) value!: string;
 }
 
 /** 用户侧：举报 */
@@ -109,11 +122,14 @@ export class AdminController {
 
   // ---------- 竞赛管理 ----------
 
+  /** 列表 / 详情对 CONTRIBUTOR 开放只读（Issue 2：贡献者编辑竞赛信息的前置） */
+  @Roles('ADMIN', 'CONTRIBUTOR')
   @Get('competitions')
   listCompetitions(@Query() q: PageDto) {
     return this.admin.adminList({ page: Number(q.page) || 1, pageSize: Number(q.pageSize) || 20, q: q.q, status: q.status });
   }
 
+  @Roles('ADMIN', 'CONTRIBUTOR')
   @Get('competitions/:id')
   detailCompetition(@Param('id') id: string) {
     return this.admin.adminDetail(id);
@@ -124,14 +140,34 @@ export class AdminController {
     return this.admin.createCompetition(this.toInput(dto));
   }
 
+  /** 编辑竞赛对 CONTRIBUTOR 开放（Issue 2）；变更照常进入版本留痕，可由管理员回滚 */
+  @Roles('ADMIN', 'CONTRIBUTOR')
   @Put('competitions/:id')
-  updateCompetition(@Param('id') id: string, @Body() dto: CompetitionDto) {
-    return this.admin.updateCompetition(id, this.toInput(dto), 'admin');
+  updateCompetition(@CurrentUser() user: import('@prisma/client').User, @Param('id') id: string, @Body() dto: CompetitionDto) {
+    return this.admin.updateCompetition(id, this.toInput(dto), user.id);
   }
 
   @Delete('competitions/:id')
   archiveCompetition(@Param('id') id: string) {
     return this.admin.archiveCompetition(id);
+  }
+
+  // ---------- 竞赛自定义字段（Issue 2） ----------
+
+  @Roles('ADMIN', 'CONTRIBUTOR')
+  @Put('competitions/:id/fields')
+  upsertCustomField(
+    @CurrentUser() user: import('@prisma/client').User,
+    @Param('id') id: string,
+    @Body() dto: CustomFieldDto,
+  ) {
+    return this.admin.upsertCustomField(id, dto.key, dto.value, user.id);
+  }
+
+  @Roles('ADMIN', 'CONTRIBUTOR')
+  @Delete('competitions/:id/fields/:key')
+  deleteCustomField(@Param('id') id: string, @Param('key') key: string) {
+    return this.admin.deleteCustomField(id, key);
   }
 
   // ---------- 组队帖管理（删除帖子） ----------

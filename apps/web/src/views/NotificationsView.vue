@@ -82,6 +82,13 @@ const payloadText = (n: NotificationItem): { title: string; desc: string; link?:
               ? `/competitions/${p.targetId}`
               : undefined,
       };
+    case 'TEAM_INTENT':
+      // Issue 1：组队意愿聚合消息（同一帖子的多条意愿合并为一条计数消息）
+      return {
+        title: `🙋 「${p.competitionName}」招募帖有 ${p.count} 人有组队意愿`,
+        desc: String(p.message ?? '点击查看帖子'),
+        link: p.teamId ? `/teams/${p.teamId}` : undefined,
+      };
     case 'SYSTEM_NOTIFICATION':
       return { title: `📢 ${String(p.title ?? n.kindLabel)}`, desc: String(p.content ?? '') };
     default:

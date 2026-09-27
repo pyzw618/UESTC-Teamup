@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import { ref, computed } from 'vue';
 import { useRouter, useRoute } from 'vue-router';
+import { ElMessage } from 'element-plus';
 import { useAuthStore } from '../stores/auth';
 import UserAvatar from './UserAvatar.vue';
 import { api } from '../api/client';
@@ -52,6 +53,41 @@ async function doLogout() {
   }
   router.push({ name: 'home' });
 }
+
+// ---------- 全站功能反馈（Issue 5 双入口之一，自动附带当前页面路径） ----------
+
+const feedbackVisible = ref(false);
+const feedbackContent = ref('');
+const feedbackContact = ref('');
+const feedbackSubmitting = ref(false);
+
+function openFeedback() {
+  feedbackContent.value = '';
+  feedbackContact.value = '';
+  feedbackVisible.value = true;
+}
+
+async function submitFeedback() {
+  if (!feedbackContent.value.trim()) {
+    ElMessage.warning('请填写反馈内容');
+    return;
+  }
+  feedbackSubmitting.value = true;
+  try {
+    await api.post('/feedback', {
+      type: 'FUNCTION',
+      pagePath: route.fullPath,
+      content: feedbackContent.value,
+      contact: feedbackContact.value || undefined,
+    });
+    feedbackVisible.value = false;
+    ElMessage.success('反馈已提交，感谢你的意见！');
+  } catch (e) {
+    ElMessage.error(e instanceof Error ? e.message : '提交失败');
+  } finally {
+    feedbackSubmitting.value = false;
+  }
+}
 </script>
 
 <template>
@@ -92,8 +128,15 @@ async function doLogout() {
         />
       </div>
 
-      <!-- 右侧：通知 + 头像胶囊（圆柱体：左侧头像 + 右侧"个人中心"） -->
+      <!-- 右侧：反馈 + 通知 + 头像胶囊（圆柱体：左侧头像 + 右侧"个人中心"） -->
       <div class="flex items-center gap-8px shrink-0">
+        <el-tooltip content="功能问题反馈" placement="bottom">
+          <button class="bell-btn" title="功能问题反馈" @click="openFeedback">
+            <svg class="bell-icon" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg" aria-hidden="true">
+              <path d="M12 16.5v-5m0-3.2v-.3M21 12a9 9 0 1 1-18 0 9 9 0 0 1 18 0Z" stroke="currentColor" stroke-width="1.7" stroke-linecap="round"/>
+            </svg>
+          </button>
+        </el-tooltip>
         <template v-if="auth.isLoggedIn">
           <el-tooltip content="消息中心" placement="bottom" :disabled="unread === 0">
             <button class="bell-btn" :class="{ 'has-unread': unread > 0 }" @click="router.push({ name: 'notifications' })">
@@ -118,7 +161,9 @@ async function doLogout() {
                 <el-dropdown-item command="/me/profile">个人中心</el-dropdown-item>
                 <el-dropdown-item command="/me/teams">我的队伍</el-dropdown-item>
                 <el-dropdown-item command="/me/favorites">我的关注</el-dropdown-item>
-                <el-dropdown-item v-if="auth.isAdmin" command="/admin/competitions" divided>管理后台</el-dropdown-item>
+                <el-dropdown-item v-if="auth.isAdmin || auth.user?.role === 'CONTRIBUTOR'" command="/admin/competitions" divided>
+                  {{ auth.isAdmin ? '管理后台' : '竞赛共建' }}
+                </el-dropdown-item>
                 <el-dropdown-item command="logout" divided>退出登录</el-dropdown-item>
               </el-dropdown-menu>
             </template>
@@ -129,6 +174,29 @@ async function doLogout() {
         </el-button>
       </div>
     </div>
+
+    <!-- 功能问题反馈弹窗（Issue 5：全站入口，自动附带当前页面路径；游客可提交） -->
+    <el-dialog v-model="feedbackVisible" title="功能问题反馈" width="440px" append-to-body>
+      <div class="flex flex-col gap-14px">
+        <div class="text-13px color-ink-soft">
+          当前页面：<code class="text-12px" style="background: rgba(0,0,0,0.05); padding: 2px 6px; border-radius: 6px">{{ route.fullPath }}</code>
+          <span class="text-12px color-ink-faint ml-4px">（提交时自动附带，便于定位问题）</span>
+        </div>
+        <el-input
+          v-model="feedbackContent"
+          type="textarea"
+          :rows="4"
+          maxlength="2000"
+          show-word-limit
+          placeholder="请描述你遇到的功能问题或建议，例如：日历页在手机上月份切换按钮点不到…"
+        />
+        <el-input v-model="feedbackContact" maxlength="100" placeholder="回访联系方式（选填），如 QQ / 微信 / 邮箱" />
+      </div>
+      <template #footer>
+        <el-button @click="feedbackVisible = false">取消</el-button>
+        <el-button type="primary" :loading="feedbackSubmitting" @click="submitFeedback">提交反馈</el-button>
+      </template>
+    </el-dialog>
   </header>
 </template>
 

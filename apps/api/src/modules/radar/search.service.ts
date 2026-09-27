@@ -10,21 +10,24 @@ import { PrismaService } from '../../common/prisma.service';
 export class SearchService {
   constructor(private readonly prisma: PrismaService) {}
 
-  async search(q: string, kind = 'competition') {
+  /** 统一搜索（Issue 6）：默认只搜当前届，可用 year 切换历史届次 */
+  async search(q: string, kind = 'competition', year?: number) {
     const query = (q ?? '').trim();
     if (query.length < 1) return { competitions: [] };
+    const editionYear = year ?? new Date().getFullYear();
 
     if (kind === 'competition') {
       // 先 trgm 相似度找近似名，再 ILIKE 补充（保证部分匹配也命中）
       const similar = await this.prisma.$queryRaw<{ id: string; similarity: number }[]>`
         SELECT id, similarity(name, ${query}) AS similarity
         FROM "Competition"
-        WHERE status = 'PUBLISHED' AND name % ${query}
+        WHERE status = 'PUBLISHED' AND "year" = ${editionYear} AND name % ${query}
         ORDER BY similarity DESC
         LIMIT 10`;
       const likeRows = await this.prisma.competition.findMany({
         where: {
           status: 'PUBLISHED',
+          year: editionYear,
           OR: [{ name: { contains: query } }, { aliases: { has: query } }, { aliases: { hasSome: [query] } }],
         },
         select: { id: true },
@@ -44,6 +47,7 @@ export class SearchService {
         .map((c) => ({
           id: c.id,
           name: c.name,
+          year: c.year,
           organizer: c.organizer,
           levels: c.levels.map((l) => l.level),
           tags: c.tags.map((t) => t.tag),

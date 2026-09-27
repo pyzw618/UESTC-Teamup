@@ -87,16 +87,42 @@ const dayNodes = computed(() => {
   });
 });
 
-onMounted(async () => {
+/** 届次年份（Issue 6）：默认当前年份，可切换历史届次 */
+const currentYear = new Date().getFullYear();
+const selectedYear = ref<number>(currentYear);
+const yearOptions = ref<number[]>([]);
+
+async function loadEvents() {
+  loading.value = true;
   try {
-    allEvents.value = await api.get<TimelineNode[]>('/calendar');
+    allEvents.value = await api.get<TimelineNode[]>(`/calendar?year=${selectedYear.value}`);
   } catch (e) {
     // H10：原来只有 try/finally，日历接口失败即 unhandled rejection 且页面空白无提示
     ElMessage.error(e instanceof Error ? e.message : '日历数据加载失败，请稍后重试');
   } finally {
     loading.value = false;
   }
+}
+
+async function loadYearOptions() {
+  try {
+    const years = await api.get<number[]>('/competitions/years');
+    yearOptions.value = [...new Set([currentYear, ...years])].sort((a, b) => b - a);
+  } catch {
+    yearOptions.value = [currentYear];
+  }
+}
+
+onMounted(async () => {
+  await Promise.all([loadEvents(), loadYearOptions()]);
 });
+
+/** 切换届次：重新拉取事件并把日历视图跳到该年 1 月 */
+function changeYear(y: number) {
+  selectedYear.value = y;
+  loadEvents();
+  calendarRef.value?.getApi().gotoDate(`${y}-01-01`);
+}
 
 function goIcs() {
   ElMessage.success('已在新窗口打开订阅链接，可添加到手机日历');
@@ -119,6 +145,9 @@ function goIcs() {
     <div class="grid grid-cols-1 lg:grid-cols-[1fr_300px] gap-16px items-start">
       <div class="glass p-18px" v-loading="loading">
         <div class="flex items-center gap-10px mb-10px flex-wrap">
+          <el-select :model-value="selectedYear" style="width: 120px" @change="changeYear">
+            <el-option v-for="y in yearOptions" :key="y" :value="y" :label="`${y} 届${y === currentYear ? '（今年）' : ''}`" />
+          </el-select>
           <el-checkbox-group v-model="selectedLevels" size="small">
             <el-checkbox-button v-for="l in levelOptions" :key="l.value" :value="l.value">{{ l.label }}</el-checkbox-button>
           </el-checkbox-group>

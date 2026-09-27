@@ -5,6 +5,8 @@ export { dayjs };
 export interface CompetitionListItem {
   id: string;
   name: string;
+  /** 届次年份（Issue 6） */
+  year: number | null;
   organizer: string | null;
   format: string | null;
   audience: string | null;
@@ -52,18 +54,21 @@ export interface CompetitionDetail extends CompetitionListItem {
   }[];
   awards: { id: string; year: number | null; awardName: string | null; teamName: string | null; members: string[] }[];
   materials: { id: string; kind: string; title: string; url: string }[];
+  /** 竞赛自定义键值字段（Issue 2「补充信息」区块） */
+  customFields?: { id: string; key: string; value: string }[];
+  /** 同名赛事的其他届次（Issue 6 年份切换） */
+  editions?: { id: string; year: number }[];
   recruitingTeamsList?: TeamSummary[];
   createdAt: string;
 }
 
-/** 招募帖（广告牌模式）：无名额/成员概念，联系方式直接公开 */
+/** 招募帖（广告牌模式）：联系方式按「组队意愿」解锁，不再默认公开 */
 export interface TeamLeaderView {
   id: string;
   nickname: string | null;
   college: string | null;
   grade: number | null;
   major: string | null;
-  studentNo?: string;
 }
 
 /** 竞赛详情页内嵌的招募帖摘要 */
@@ -73,10 +78,12 @@ export interface TeamSummary {
   status: string;
   deadline: string | null;
   neededRoles: string[];
-  /** 计划招募人数（队长手填） */
+  /** 计划招募人数（含队长本人） */
   targetSize?: number | null;
-  /** 已有成员数量 = 手填成员行数 */
+  /** 已有人数 = 1（队长）+ 手填成员行数 */
   memberCount?: number;
+  /** 已登记组队意愿的人数 */
+  intentCount?: number;
   leader: TeamLeaderView;
 }
 
@@ -87,10 +94,12 @@ export interface TeamListItem {
   deadline: string | null;
   neededRoles: string[];
   expired: boolean;
-  /** 计划招募人数（队长手填，展示用） */
+  /** 计划招募人数（含队长本人） */
   targetSize: number | null;
-  /** 已有成员数量（派生） */
+  /** 已有人数（含队长） */
   memberCount: number;
+  /** 已登记组队意愿的人数 */
+  intentCount: number;
   competition: { id: string; name: string };
   leader: TeamLeaderView;
   commentCount: number;
@@ -99,17 +108,33 @@ export interface TeamListItem {
 
 export interface TeamDetail extends TeamListItem {
   requirement: string | null;
-  /** 联系方式：QQ 与微信至少一项 */
+  /** 联系方式：仅在 viewer.isLeader / isAdmin / viewer.hasIntent 时下发（Issue 1） */
   qq: string | null;
   wechat: string | null;
-  competition: { id: string; name: string; levels: string[]; officialUrl: string | null };
-  /** 已有成员情况（队长手填，纯展示） */
+  /** 当前查看者是否已解锁联系方式 */
+  contactUnlocked: boolean;
+  competition: { id: string; name: string; levels: string[]; officialUrl: string | null; status?: string };
+  /** 已有成员情况（队长手填，纯展示；游客不可见） */
   members: { id: string; grade: number | null; college: string | null; major: string | null; rank: string | null; intro: string | null }[];
   /**
-   * M15：后端契约 —— isLeader 仅表示「真实队长」，isAdmin 表示「当前用户是管理员」。
+   * M15：后端契约 —— isLeader 仅表示「真实队长」，isAdmin 表示「当前用户是管理员」，
+   * hasIntent 表示当前用户已对该帖登记组队意愿。
    * 写操作（编辑/解散/切状态）只看 isLeader；管理员在详情页是只读视角。
    */
-  viewer: { isLeader: boolean; isAdmin?: boolean };
+  viewer: { isLeader: boolean; isAdmin?: boolean; hasIntent?: boolean };
+}
+
+/** 反馈条目（后台查看 / 导出同源结构） */
+export interface FeedbackItem {
+  id: string;
+  type: 'FUNCTION' | 'COMPETITION_INFO';
+  competitionId: string | null;
+  competitionName: string | null;
+  pagePath: string | null;
+  content: string;
+  contact: string | null;
+  submittedBy: { userId: string; nickname: string | null } | null;
+  createdAt: string;
 }
 
 export interface NotificationItem {

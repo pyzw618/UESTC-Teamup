@@ -103,6 +103,12 @@ enum NotificationKind {
   SOURCE_FAILING
   CORRECTION_NEW
   SYSTEM_NOTIFICATION
+  TEAM_INTENT
+}
+
+enum FeedbackType {
+  FUNCTION
+  COMPETITION_INFO
 }
 
 enum RevisionOrigin {
@@ -159,6 +165,9 @@ model User {
   materials     CompetitionMaterial[]
   bans          BanRecord[]       @relation("BannedUser")
   banActions    BanRecord[]       @relation("BanActor")
+  teamIntents   TeamIntent[]
+  feedbacks     Feedback[]
+  updatedCustomFields CompetitionCustomField[] @relation("CustomFieldUpdater")
 
   @@index([role])
 }
@@ -177,8 +186,9 @@ model UserSkill {
 
 model Competition {
   id          String  @id @default(cuid())
-  // M2：竞赛名唯一（同名竞赛会造成雷达列表重复、纠错/收藏指向歧义）
-  name        String  @unique
+  name        String
+  // 届次年份（2026-09-27）：同一赛事可有多个年度档案；唯一性 = 名称 + 年份
+  year        Int
   aliases     String[]
   organizer   String?
   officialUrl String?
@@ -212,9 +222,30 @@ model Competition {
   anomalies     CrawlAnomaly[]
   corrections   CorrectionReport[]
   teams         Team[]
+  customFields  CompetitionCustomField[]
+  feedbacks     Feedback[]
 
+  @@unique([name, year])
   @@index([status])
   @@index([updatedAt])
+  @@index([year])
+}
+
+// 竞赛自定义键值属性（2026-09-27）：表达各竞赛特有信息（如数模的 QQ 交流群号）。
+// 修改走 CrawlRevision（field = "custom:<key>"）留痕，可回滚。
+model CompetitionCustomField {
+  id            String   @id @default(cuid())
+  competitionId String
+  key           String
+  value         String   @db.Text
+  updatedById   String?
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+
+  competition Competition @relation(fields: [competitionId], references: [id], onDelete: Cascade)
+  updatedBy   User?       @relation("CustomFieldUpdater", fields: [updatedById], references: [id])
+
+  @@unique([competitionId, key])
 }
 
 // 级别多值：一个竞赛常有 校赛→省赛→国赛 链路
@@ -419,6 +450,8 @@ model Team {
   competition Competition @relation(fields: [competitionId], references: [id])
   leader      User        @relation("TeamLeader", fields: [leaderId], references: [id])
   members     TeamMember[]
+  // 组队意愿（2026-09-27）：点击「我想组队」登记一条；(teamId, userId) 唯一防重复
+  intents     TeamIntent[]
 
   @@index([status, competitionId])
   @@index([deadline])
@@ -426,7 +459,7 @@ model Team {
 }
 
 // 已有成员情况：队长手填的纯展示名单（加入在平台外发生，不关联平台账号）。
-// 已有成员数量 = 本表行数（派生，不落库）。
+// 队长本人视为队伍第 1 人：memberCount = 1 + 本表行数（派生，不落库，与 targetSize「含自己」口径一致）。
 model TeamMember {
   id     String @id @default(cuid())
   teamId String
@@ -442,6 +475,22 @@ model TeamMember {
   team Team @relation(fields: [teamId], references: [id], onDelete: Cascade)
 
   @@index([teamId])
+}
+
+// 组队意愿（2026-09-27 Issue 1）：登录用户点击「我想组队」即登记，
+// 招募人据此知道谁对帖子感兴趣（只给计数，不给名单）；可撤销。
+model TeamIntent {
+  id        String   @id @default(cuid())
+  teamId    String
+  userId    String
+  createdAt DateTime @default(now())
+
+  team Team @relation(fields: [teamId], references: [id], onDelete: Cascade)
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([teamId, userId])
+  @@index([teamId])
+  @@index([userId])
 }
 
 // ================= 横向表 =================
@@ -568,4 +617,24 @@ model Announcement {
   createdAt DateTime @default(now())
 
   @@index([active, createdAt])
+}
+
+// 用户反馈（2026-09-27 Issue 5）：全站功能反馈 + 竞赛信息反馈，后台按日导出 JSON
+model Feedback {
+  id              String       @id @default(cuid())
+  type            FeedbackType
+  competitionId   String?
+  // 提交时竞赛名快照：防竞赛改名 / 改届次后对不上号
+  competitionName String?
+  pagePath        String?
+  content         String       @db.Text
+  contact         String?
+  userId          String?
+  createdAt       DateTime     @default(now())
+
+  competition Competition? @relation(fields: [competitionId], references: [id], onDelete: SetNull)
+  user        User?        @relation(fields: [userId], references: [id], onDelete: SetNull)
+
+  @@index([type, createdAt])
+  @@index([createdAt])
 }

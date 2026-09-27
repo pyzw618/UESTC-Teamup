@@ -17,6 +17,8 @@ const auth = useAuthStore();
 
 const team = ref<TeamDetail | null>(null);
 const loading = ref(true);
+/** 详情接口失败（404 / 网络等）：明确区分错误态（A3：不把 401/403 混同成不存在） */
+const loadError = ref(false);
 
 const remaining = computed(() => {
   if (!team.value?.deadline) return null;
@@ -37,6 +39,13 @@ const statusText = computed(() => TeamStatusLabel[team.value?.status as TeamStat
 const isLeaderViewer = computed(() => !!team.value?.viewer?.isLeader);
 const isAdminViewer = computed(() => !!team.value?.viewer?.isAdmin && !isLeaderViewer.value);
 
+/** Issue 1：当前查看者是否已解锁联系方式（队长 / 管理员 / 已登记组队意愿） */
+const contactUnlocked = computed(() => !!team.value?.contactUnlocked);
+const hasIntent = computed(() => !!team.value?.viewer?.hasIntent);
+
+/** B2：手动新建的竞赛待审核 —— 招募帖暂不出现在公共发现流，需要明确告知队长 */
+const competitionPending = computed(() => team.value?.competition?.status === 'DRAFT');
+
 /** competition.officialUrl 来自采集，走协议白名单后再绑定 */
 const competitionUrl = computed(() => safeHref(team.value?.competition?.officialUrl));
 
@@ -54,26 +63,63 @@ const roleOptions = Object.values(RoleType).map((r) => ({ value: r, label: RoleT
 const goalOptions = Object.values(TeamGoal).map((g) => ({ value: g, label: TeamGoalLabel[g] }));
 
 async function load() {
-  if (!auth.isLoggedIn) {
-    loading.value = false;
-    return;
-  }
   loading.value = true;
+  loadError.value = false;
   try {
     team.value = await api.get<TeamDetail>(`/teams/${route.params.id}`);
-  } catch {
-    ElMessage.error('招募帖不存在');
-    router.push({ name: 'teams' });
+  } catch (e) {
+    loadError.value = true;
+    if ((e as { code?: number })?.code !== 404) ElMessage.error('招募帖加载失败，请稍后重试');
   } finally {
     loading.value = false;
   }
 }
 onMounted(load);
 
+// ---------- 组队意愿（Issue 1） ----------
+
+const intentSubmitting = ref(false);
+
+async function registerIntent() {
+  if (!auth.isLoggedIn) {
+    // 待定项结论：游客点击引导登录（与「注册用户可见联系方式」边界一致）
+    router.push({ name: 'login', query: { redirect: route.fullPath } });
+    return;
+  }
+  intentSubmitting.value = true;
+  try {
+    await api.post(`/teams/${team.value!.id}/intent`);
+    ElMessage.success('已登记组队意愿，队长的联系方式已为你解锁');
+    await load();
+  } catch (e) {
+    ElMessage.error(e instanceof Error ? e.message : '操作失败');
+  } finally {
+    intentSubmitting.value = false;
+  }
+}
+
+async function revokeIntent() {
+  try {
+    await ElMessageBox.confirm('撤销后你的组队意愿将被移除，联系方式重新上锁。确认撤销？', '撤销组队意愿', { type: 'warning' });
+  } catch {
+    return;
+  }
+  intentSubmitting.value = true;
+  try {
+    await api.delete(`/teams/${team.value!.id}/intent`);
+    ElMessage.success('已撤销组队意愿');
+    await load();
+  } catch (e) {
+    ElMessage.error(e instanceof Error ? e.message : '操作失败');
+  } finally {
+    intentSubmitting.value = false;
+  }
+}
+
 // ---------- 队长操作：状态切换 / 编辑 ----------
 
 const STATUS_CONFIRM: Record<string, { tip: string; type: 'warning' | 'info' }> = {
-  FULL: { tip: '标记为「已满员」后帖子仍会展示，但会提示同学不再收人。', type: 'info' },
+  FULL: { tip: '标记为「已满员」后帖子不再出现在公共发现列表，仅你与管理员可见。', type: 'info' },
   DISBANDED: { tip: '解散后帖子进入你的「归档仓库」，公共列表不再展示，且不可恢复。', type: 'warning' },
   RECRUITING: { tip: '重新开启招募，帖子恢复为「招募中」。', type: 'info' },
 };
@@ -196,27 +242,30 @@ async function submitEdit() {
 
 <template>
   <div class="page-wrap">
-    <!-- 游客：磨砂玻璃门 -->
-    <div v-if="!auth.isLoggedIn && !loading" class="max-w-860px mx-auto">
-      <FrostedGate
-        title="招募帖详情仅对登录同学可见"
-        description="登录后查看招募要求、招募方向，并直接获取队长联系方式"
-        style="min-height: 420px"
-      >
-        <div class="flex flex-col gap-12px p-8px">
-          <div class="skeleton h-90px"></div>
-          <div class="skeleton h-60px"></div>
-          <div class="skeleton h-60px"></div>
-        </div>
-      </FrostedGate>
-    </div>
-
-    <div v-else-if="loading" class="max-w-860px mx-auto flex flex-col gap-14px">
+    <div v-if="loading" class="max-w-860px mx-auto flex flex-col gap-14px">
       <div class="skeleton h-110px"></div>
       <div class="skeleton h-240px"></div>
     </div>
 
+    <div v-else-if="loadError" class="max-w-860px mx-auto">
+      <div class="glass p-28px">
+        <el-empty description="招募帖不存在或已归档" :image-size="80">
+          <el-button type="primary" round @click="router.push({ name: 'teams' })">回到发现列表</el-button>
+        </el-empty>
+      </div>
+    </div>
+
     <div v-else-if="team" class="max-w-860px mx-auto flex flex-col gap-16px">
+      <!-- B2：竞赛待审核提示（手动建档的 DRAFT 竞赛，招募帖暂不可被发现） -->
+      <el-alert
+        v-if="competitionPending && isLeaderViewer"
+        type="warning"
+        :closable="false"
+        show-icon
+        title="竞赛档案待审核：这条招募帖暂时不会出现在公共发现列表"
+        description="你手动填写的新竞赛已提交管理员审核，审核发布后招募帖即可被其他同学看到。你也可以先在「我的帖子」里管理这条招募。"
+      />
+
       <!-- 头部 -->
       <section class="glass p-24px animate-appear">
         <div class="flex items-start justify-between gap-12px flex-wrap">
@@ -230,6 +279,7 @@ async function submitEdit() {
                 :style="remaining <= 3 ? 'background:rgba(217,60,60,0.1);color:#c0392b' : 'background:rgba(15,76,140,0.07);color:var(--uestc-blue)'"
               >{{ remaining === 0 ? '今天截止' : `招募剩 ${remaining} 天` }}</span>
               <span v-else-if="expired" class="chip" style="background:rgba(0,0,0,0.06);color:var(--ink-faint)">已截止</span>
+              <span v-if="team.intentCount" class="chip" style="background:rgba(92,58,158,0.1);color:#5c3a9e">🙋 {{ team.intentCount }} 人有组队意愿</span>
             </div>
             <div
               class="text-18px font-bold color-uestc-600 cursor-pointer hover:underline"
@@ -242,7 +292,7 @@ async function submitEdit() {
               rel="noopener noreferrer"
               class="text-12px color-uestc-500"
             >竞赛官网 ↗</a>
-            <router-link :to="`/u/${team.leader.id}`" class="leader-line">
+            <router-link v-if="team.leader" :to="`/u/${team.leader.id}`" class="leader-line">
               <UserAvatar :name="team.leader.nickname || team.leader.college || 'U'" :size="26" />
               <span class="text-13px color-ink-soft">发布者 <b class="color-ink">{{ team.leader.nickname || '同学' }}</b></span>
             </router-link>
@@ -267,6 +317,13 @@ async function submitEdit() {
               class="text-12px color-ink-faint self-center"
               title="管理操作请前往后台举报/内容管理台"
             >管理员视角（只读）</span>
+            <!-- Issue 1：组队意愿入口（游客点击 → 引导登录） -->
+            <template v-else-if="team.status === 'RECRUITING'">
+              <el-button v-if="!hasIntent" type="primary" round :loading="intentSubmitting" @click="registerIntent">
+                🙋 我也想组队
+              </el-button>
+              <el-button v-else round :loading="intentSubmitting" @click="revokeIntent">已登记 · 撤销意愿</el-button>
+            </template>
           </div>
         </div>
       </section>
@@ -275,32 +332,71 @@ async function submitEdit() {
       <div class="grid grid-cols-1 md:grid-cols-2 gap-16px">
         <section class="glass p-20px flex flex-col">
           <h2 class="text-15px font-bold m-0 mb-10px">📋 招募要求</h2>
-          <div v-if="team.neededRoles?.length" class="flex gap-6px flex-wrap mb-12px">
-            <span v-for="r in team.neededRoles" :key="r" class="role-tag">{{ roleLabel(r) }}</span>
-          </div>
-          <span v-else class="role-tag is-open mb-12px self-start">方向不限</span>
-          <p v-if="team.requirement" class="text-14px color-ink-soft m-0 whitespace-pre-wrap leading-relaxed">{{ team.requirement }}</p>
-          <p v-else class="text-13px color-ink-faint m-0">队长没有填写具体要求，直接联系聊聊吧</p>
+          <template v-if="auth.isLoggedIn">
+            <div v-if="team.neededRoles?.length" class="flex gap-6px flex-wrap mb-12px">
+              <span v-for="r in team.neededRoles" :key="r" class="role-tag">{{ roleLabel(r) }}</span>
+            </div>
+            <span v-else class="role-tag is-open mb-12px self-start">方向不限</span>
+            <p v-if="team.requirement" class="text-14px color-ink-soft m-0 whitespace-pre-wrap leading-relaxed">{{ team.requirement }}</p>
+            <p v-else class="text-13px color-ink-faint m-0">队长没有填写具体要求，直接联系聊聊吧</p>
+          </template>
+          <template v-else>
+            <div class="flex gap-6px flex-wrap mb-12px">
+              <span v-for="r in team.neededRoles" :key="r" class="role-tag">{{ roleLabel(r) }}</span>
+              <span v-if="!team.neededRoles?.length" class="role-tag is-open">方向不限</span>
+            </div>
+            <FrostedGate
+              title="招募要求详情仅对登录同学可见"
+              description="登录后查看完整要求与成员名单，并解锁队长联系方式"
+              style="min-height: 120px"
+            >
+              <div class="skeleton h-40px"></div>
+            </FrostedGate>
+          </template>
         </section>
 
         <section class="glass p-20px contact-card">
-          <h2 class="text-15px font-bold m-0 mb-10px">📞 联系队长</h2>
-          <div class="contact-list">
-            <div v-if="team.qq" class="contact-row">
-              <span class="k">QQ</span>
-              <span class="v">{{ team.qq }}</span>
-            </div>
-            <div v-if="team.wechat" class="contact-row">
-              <span class="k">微信</span>
-              <span class="v">{{ team.wechat }}</span>
-            </div>
+          <div class="flex items-center justify-between mb-10px">
+            <h2 class="text-15px font-bold m-0">📞 联系队长</h2>
+            <span v-if="!contactUnlocked" class="text-12px color-ink-faint">🔒 登记组队意愿后可见</span>
           </div>
+
+          <!-- Issue 1：联系方式默认遮挡，点击「我想组队」后解锁 -->
+          <template v-if="contactUnlocked">
+            <div class="contact-list">
+              <div v-if="team.qq" class="contact-row">
+                <span class="k">QQ</span>
+                <span class="v">{{ team.qq }}</span>
+              </div>
+              <div v-if="team.wechat" class="contact-row">
+                <span class="k">微信</span>
+                <span class="v">{{ team.wechat }}</span>
+              </div>
+              <div v-if="!team.qq && !team.wechat" class="text-13px color-ink-faint">队长暂未留下联系方式，可在留言板联系</div>
+            </div>
+            <p v-if="hasIntent && !isLeaderViewer" class="text-12px color-ink-faint mt-10px m-b-0">
+              你已登记组队意愿 —— 招募人能看到有人对你的帖子感兴趣；不想去了可随时撤销。
+            </p>
+          </template>
+          <template v-else>
+            <div class="contact-locked">
+              <div class="contact-row is-locked"><span class="k">QQ</span><span class="v masked">••••••••</span></div>
+              <div class="contact-row is-locked"><span class="k">微信</span><span class="v masked">••••••••</span></div>
+            </div>
+            <el-button type="primary" class="w-full mt-14px" round :loading="intentSubmitting" @click="registerIntent">
+              🙋 我想组队 · 解锁联系方式
+            </el-button>
+            <p class="text-12px color-ink-faint mt-8px m-b-0">
+              点击即向队长发送「有人想组队」的提示（仅计数，不公开你的身份）；可随时撤销。
+            </p>
+          </template>
         </section>
       </div>
 
       <!-- 已有成员情况（队长手填，纯展示） -->
-      <section class="glass p-20px">
+      <section v-if="auth.isLoggedIn" class="glass p-20px">
         <h2 class="text-15px font-bold m-0 mb-12px">👥 已有成员（{{ team.memberCount }}<template v-if="team.targetSize"> / 计划 {{ team.targetSize }}</template>）</h2>
+        <p class="text-12px color-ink-faint m-0 mb-10px">人数已包含队长本人；下方名单为队长录入的其他成员</p>
         <div v-if="team.members?.length" class="flex flex-col gap-10px">
           <div
             v-for="m in team.members"
@@ -322,9 +418,9 @@ async function submitEdit() {
       </section>
 
       <!-- 评论区 -->
-      <section class="glass p-20px">
+      <section v-if="auth.isLoggedIn" class="glass p-20px">
         <h2 class="text-15px font-bold m-0 mb-12px">💬 留言板</h2>
-        <p class="text-12px color-ink-faint m-0 mb-12px">有意向或有问题就在这里留言，队长会看到；也可以直接加上方联系方式</p>
+        <p class="text-12px color-ink-faint m-0 mb-12px">有意向或有问题就在这里留言，队长会看到；也可以登记组队意愿后直接联系队长</p>
         <CommentList target-type="TEAM" :target-id="team.id" @posted="load" />
       </section>
     </div>
@@ -351,9 +447,9 @@ async function submitEdit() {
         <div class="grid grid-cols-1 md:grid-cols-2 gap-12px">
           <div>
             <div class="text-13px font-semibold mb-6px">QQ <span class="text-12px color-ink-faint font-normal">（QQ / 微信至少填一项）</span></div>
-            <el-input v-model="editForm.qq" maxlength="64" placeholder="QQ 号，公开展示" />
+            <el-input v-model="editForm.qq" maxlength="64" placeholder="QQ 号" />
             <div class="text-13px font-semibold mt-10px mb-6px">微信</div>
-            <el-input v-model="editForm.wechat" maxlength="64" placeholder="微信号，公开展示" />
+            <el-input v-model="editForm.wechat" maxlength="64" placeholder="微信号" />
           </div>
           <div>
             <div class="text-13px font-semibold mb-6px">招募截止</div>
@@ -494,5 +590,13 @@ async function submitEdit() {
   font-weight: 700;
   color: var(--ink);
   word-break: break-all;
+}
+/* Issue 1：未解锁时的占位遮挡（不是真实数据，只是视觉提示） */
+.contact-row.is-locked .v.masked {
+  color: var(--ink-faint);
+  letter-spacing: 3px;
+  font-weight: 400;
+  user-select: none;
+  filter: blur(2.5px);
 }
 </style>

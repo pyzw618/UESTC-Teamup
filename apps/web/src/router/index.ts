@@ -40,6 +40,7 @@ export const router = createRouter({
         { path: 'reports', name: 'admin-reports', component: () => import('../views/admin/AdminReportsView.vue') },
         { path: 'users', name: 'admin-users', component: () => import('../views/admin/AdminUsersView.vue') },
         { path: 'announcements', name: 'admin-announcements', component: () => import('../views/admin/AdminAnnouncementsView.vue') },
+        { path: 'feedback', name: 'admin-feedback', component: () => import('../views/admin/AdminFeedbackView.vue') },
       ],
     },
     { path: '/:pathMatch(.*)*', redirect: '/' },
@@ -52,7 +53,8 @@ router.beforeEach(async (to) => {
   if (to.meta.auth && !auth.isLoggedIn) {
     return { name: 'login', query: { redirect: to.fullPath } };
   }
-  if (to.meta.admin && !auth.isAdmin) {
+  // Issue 2：CONTRIBUTOR 也可进入后台（仅竞赛编辑；AdminLayout 按角色过滤标签，接口权限由后端守卫）
+  if (to.meta.admin && !auth.isAdmin && auth.user?.role !== 'CONTRIBUTOR') {
     return { name: 'home' };
   }
   if (to.name === 'login' && auth.isLoggedIn) {

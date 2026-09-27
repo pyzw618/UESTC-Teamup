@@ -9,10 +9,12 @@ import {
   normalizeTitle,
   textSimilarity,
 } from '../src/modules/crawler/matcher.service';
-import { isLockedTimelineChangeAllowed } from '../src/modules/crawler/publisher.service';
+import { isLockedTimelineChangeAllowed, mayReplaceByPriority } from '../src/modules/crawler/publisher.service';
+import { OFFICIAL_COMPETITION_PRESETS } from '../src/modules/crawler/official-competition.presets';
 import { CssParser } from '../src/modules/crawler/parser/css.parser';
 import { JsonApiParser } from '../src/modules/crawler/parser/json-api.parser';
 import { hashContent } from '../src/modules/crawler/differ.service';
+import { filterUnseenCrawlItems } from '../src/modules/crawler/crawler.service';
 
 test('fetcher decodes GBK using the HTTP charset', () => {
   const rawBody = iconv.encode('竞赛报名通知', 'gbk');
@@ -164,6 +166,87 @@ test('locked timeline nodes are never eligible for crawler updates', () => {
     }),
     true,
   );
+});
+
+test('source priority protects aggregate and manual values while filling gaps', () => {
+  assert.equal(mayReplaceByPriority('成电校内通知', 2, { origin: 'CRAWL', source: { priority: 1 } }), false);
+  assert.equal(mayReplaceByPriority('官网旧通知', 1, { origin: 'CRAWL', source: { priority: 2 } }), true);
+  assert.equal(mayReplaceByPriority('人工修订', 1, { origin: 'MANUAL', source: null }), false);
+  assert.equal(mayReplaceByPriority(null, 2), true);
+  assert.equal(mayReplaceByPriority('历史自动时间', 2, undefined, true), true);
+});
+
+test('official site catalog keeps unsupported sites disabled', () => {
+  assert.equal(OFFICIAL_COMPETITION_PRESETS.length, 56);
+  assert.ok(OFFICIAL_COMPETITION_PRESETS.every((source) => source.priority === 2));
+  assert.ok(OFFICIAL_COMPETITION_PRESETS.some((source) => source.enabled));
+  assert.ok(OFFICIAL_COMPETITION_PRESETS.some((source) => !source.enabled));
+});
+
+test('verified second-level official lists are enabled without reviving stale sites', () => {
+  const byCatalogId = (catalogId: number) => OFFICIAL_COMPETITION_PRESETS.find((source) =>
+    (source.selectorConf as Record<string, unknown>).catalogId === catalogId);
+  for (const id of [19, 26, 27, 30, 31, 40, 42, 50]) {
+    const source = byCatalogId(id);
+    assert.equal(source?.enabled, true, `catalog #${id} should be enabled`);
+    assert.equal((source?.selectorConf as Record<string, unknown>).maxItems, undefined);
+  }
+  assert.match(byCatalogId(19)?.url ?? '', /\/Competition\/Index/);
+  assert.match(byCatalogId(31)?.url ?? '', /\/newss\.html/);
+  assert.match(byCatalogId(50)?.url ?? '', /\/inform\?value=2/);
+  for (const id of [5, 17, 29, 56]) {
+    assert.equal(byCatalogId(id)?.enabled, false, `catalog #${id} needs further review`);
+  }
+});
+
+test('official CSS parser keeps only matching article links', () => {
+  const parser = new CssParser();
+  const html = '<a href="#">大赛首页</a><a href="/news/123">第十八届全国大学生数学竞赛通知</a><a href="/news/124">其他公告</a>';
+  const items = parser.parseList({
+    url: 'https://www.cmathc.org.cn/', status: 200, headers: {}, charset: 'utf-8',
+    body: html, rawBody: Buffer.from(html), fetchedAt: new Date('2026-09-27'),
+  }, {
+    url: 'https://www.cmathc.org.cn/', selectorConf: {
+      itemSelector: 'a[href]', titleSelector: 'a', linkSelector: 'a',
+      titlePattern: '数学竞赛', linkPattern: '/news/', maxItems: 1,
+    },
+  });
+  assert.equal(items.length, 1);
+  assert.equal(items[0]?.link, 'https://www.cmathc.org.cn/news/123');
+});
+
+test('official CSS parser selects the newest notice after pinned older items', () => {
+  const parser = new CssParser();
+  const html = '<a href="/details?id=old">置顶 嵌入式大赛报名通知 2026-02-10</a>' +
+    '<a href="/details?id=new">嵌入式大赛决赛通知 2026-08-24</a>';
+  const items = parser.parseList({
+    url: 'https://example.org/notices', status: 200, headers: {}, charset: 'utf-8',
+    body: html, rawBody: Buffer.from(html), fetchedAt: new Date('2026-09-27'),
+  }, {
+    url: 'https://example.org/notices', selectorConf: {
+      itemSelector: 'a[href]', titleSelector: 'a', linkSelector: 'a',
+      titlePattern: '嵌入式', publishTimeFromItemText: true, sortByPublishTime: true,
+    },
+  });
+  assert.equal(items.length, 2);
+  assert.equal(items[0]?.link, 'https://example.org/details?id=new');
+  assert.equal(items[1]?.link, 'https://example.org/details?id=old');
+});
+
+test('one crawl processes every unseen page item, using external IDs when links are shared', () => {
+  const candidates = [
+    { title: '旧公告', link: 'https://example.org/', externalId: '101' },
+    { title: '新公告一', link: 'https://example.org/', externalId: '102' },
+    { title: '新公告二', link: 'https://example.org/', externalId: '103' },
+    { title: '新公告二重复展示', link: 'https://example.org/', externalId: '103' },
+    { title: '新网页公告', link: 'https://example.org/news/4' },
+  ];
+  const previous = [
+    { link: 'https://example.org/', externalId: '101', processed: true },
+    { link: 'https://example.org/', externalId: '102', processed: false },
+  ];
+  assert.deepEqual(filterUnseenCrawlItems(candidates, previous).map((item) => item.title),
+    ['新公告一', '新公告二', '新网页公告']);
 });
 
 test('CssParser parses UESTC graduate school SSR html correctly', () => {

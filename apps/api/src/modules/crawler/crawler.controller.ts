@@ -1,5 +1,5 @@
 import { Body, Controller, Get, Param, Post } from '@nestjs/common';
-import { IsBoolean, IsOptional } from 'class-validator';
+import { IsBoolean, IsNotEmpty, IsOptional, IsString } from 'class-validator';
 import { Admin } from '../../common/auth/decorators';
 import { CrawlerService } from './crawler.service';
 
@@ -10,6 +10,8 @@ class RunCrawlerDto {
 }
 
 class PreviewCrawlerDto {
+  @IsString()
+  @IsNotEmpty()
   sourceId!: string;
 }
 

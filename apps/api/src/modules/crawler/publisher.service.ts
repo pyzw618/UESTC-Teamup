@@ -1,11 +1,26 @@
 import { Injectable } from '@nestjs/common';
-import { Prisma, type CompetitionTimeline } from '@prisma/client';
+import { Prisma, RevisionOrigin, type CompetitionTimeline } from '@prisma/client';
 import { PrismaService } from '../../common/prisma.service';
 import type { CrawlParsedItem, CompetitionMatchDecision, TimelineStageCandidate } from './crawler.types';
 import { GuardService } from './guard.service';
 
 const COMPETITION_FIELDS = ['name', 'organizer', 'officialUrl', 'intro', 'sourceUrl'] as const;
 type CompetitionField = (typeof COMPETITION_FIELDS)[number];
+type SourceRevision = { field: string; timelineId: string | null; origin: RevisionOrigin; source: { priority: number } | null };
+
+export function mayReplaceByPriority(
+  currentValue: unknown,
+  incomingPriority: number,
+  revision?: Pick<SourceRevision, 'origin' | 'source'>,
+  legacyAuto = false,
+): boolean {
+  if (currentValue === null || currentValue === undefined || currentValue === '') return true;
+  if (!revision) return legacyAuto && incomingPriority <= 3;
+  if (revision.origin !== RevisionOrigin.CRAWL) return false;
+  // Old crawl revisions have no source id. Treat them as primary so newly added
+  // official sources cannot silently replace an existing UESTC value.
+  return incomingPriority <= (revision.source?.priority ?? 1);
+}
 
 function serialize(value: unknown): string | null {
   if (value === null || value === undefined) return null;
@@ -48,6 +63,16 @@ export class PublisherService {
     decision: CompetitionMatchDecision,
     item: CrawlParsedItem,
   ): Promise<{ published: boolean; competitionId: string | null; changed: number }> {
+    const source = await this.prisma.crawlSource.findUniqueOrThrow({
+      where: { id: sourceId },
+      select: { priority: true, selectorConf: true },
+    });
+    const sourceConfig = source.selectorConf && typeof source.selectorConf === 'object' && !Array.isArray(source.selectorConf)
+      ? source.selectorConf as Record<string, unknown>
+      : {};
+    const canonicalName = typeof sourceConfig.competitionName === 'string'
+      ? sourceConfig.competitionName.trim()
+      : item.title.trim();
     const existing =
       decision.competitionId === null
         ? null
@@ -56,13 +81,72 @@ export class PublisherService {
             include: { timelines: true },
           });
 
+    const revisions: SourceRevision[] = existing
+      ? await this.prisma.crawlRevision.findMany({
+          where: { OR: [
+            { competitionId: existing.id },
+            { timelineId: { in: existing.timelines.map((timeline) => timeline.id) } },
+          ] },
+          orderBy: { createdAt: 'desc' },
+          select: { field: true, timelineId: true, origin: true, source: { select: { priority: true } } },
+        })
+      : [];
+    const latest = (field: string, timelineId: string | null = null) =>
+      revisions.find((revision) => revision.field === field && revision.timelineId === timelineId);
+
     const proposedFields: Partial<Record<CompetitionField, string>> = {
-      name: item.title.trim(),
-      officialUrl: item.link,
       sourceUrl: item.link,
     };
+    if (!existing) proposedFields.name = canonicalName;
+    if (typeof sourceConfig.officialUrl === 'string') {
+      proposedFields.officialUrl = sourceConfig.officialUrl;
+    }
     if (item.organizer?.trim()) proposedFields.organizer = item.organizer.trim();
-    if (item.content?.trim()) proposedFields.intro = item.content.trim();
+    // A news article is evidence for a date, not a stable competition overview.
+    if (sourceConfig.contentIsIntro === true && item.content?.trim()) {
+      proposedFields.intro = item.content.trim();
+    }
+    if (existing) {
+      for (const field of COMPETITION_FIELDS) {
+        if (proposedFields[field] === undefined) continue;
+        const legacyOfficialUrl = field === 'officialUrl' &&
+          typeof existing.officialUrl === 'string' &&
+          /^https?:\/\/[^/]*\.uestc\.edu\.cn(?:\/|$)/i.test(existing.officialUrl) &&
+          latest(field)?.origin === RevisionOrigin.CRAWL;
+        if (!legacyOfficialUrl && !mayReplaceByPriority(existing[field], source.priority, latest(field))) {
+          delete proposedFields[field];
+        }
+      }
+    }
+
+    for (const candidate of item.stages ?? []) {
+      const current = existing?.timelines.find((timeline) =>
+        timeline.stage === candidate.stage && timeline.level === (candidate.level ?? null));
+      if (current?.isLocked && timelineWouldChange(current, candidate)) {
+        await this.guard.recordConflict(sourceId, current.competitionId, current.id, {
+          stage: current.stage,
+          currentStartAt: current.startAt,
+          currentEndAt: current.endAt,
+          proposedStartAt: candidate.startAt,
+          proposedEndAt: candidate.endAt,
+        });
+      }
+    }
+
+    const candidateStages = (item.stages ?? []).flatMap((candidate) => {
+      if (!candidate.startAt && !candidate.endAt) return [];
+      const current = existing?.timelines.find((timeline) =>
+        timeline.stage === candidate.stage && timeline.level === (candidate.level ?? null));
+      if (!current) return [candidate];
+      if (current.isLocked) return [];
+      return [{
+        ...candidate,
+        startAt: candidate.startAt && mayReplaceByPriority(current.startAt, source.priority, latest('startAt', current.id), current.isAuto && !existing?.sourceUrl?.includes('uestc.edu.cn'))
+          ? candidate.startAt : null,
+        endAt: candidate.endAt && mayReplaceByPriority(current.endAt, source.priority, latest('endAt', current.id), current.isAuto && !existing?.sourceUrl?.includes('uestc.edu.cn'))
+          ? candidate.endAt : null,
+      }].filter((stage) => stage.startAt || stage.endAt);
+    });
 
     const currentFields: Record<string, unknown> = {};
     if (existing) {
@@ -82,7 +166,7 @@ export class PublisherService {
     }
 
     const timelines = existing?.timelines ?? [];
-    for (const candidate of item.stages ?? []) {
+    for (const candidate of candidateStages) {
       const current = timelines.find(
         (timeline) => timeline.stage === candidate.stage && timeline.level === (candidate.level ?? null),
       );
@@ -112,15 +196,6 @@ export class PublisherService {
         return { published: false, competitionId: existing?.id ?? null, changed: 0 };
       }
 
-      if (current.isLocked && timelineWouldChange(current, candidate)) {
-        await this.guard.recordConflict(sourceId, current.competitionId, current.id, {
-          stage: current.stage,
-          currentStartAt: current.startAt,
-          currentEndAt: current.endAt,
-          proposedStartAt: candidate.startAt,
-          proposedEndAt: candidate.endAt,
-        });
-      }
     }
 
     return this.prisma.$transaction(async (tx) => {
@@ -129,17 +204,11 @@ export class PublisherService {
 
       if (!existing) {
         const data: Prisma.CompetitionUncheckedCreateInput = {
-          name: item.title.trim(),
+          name: canonicalName,
           aliases: [],
           status: 'DRAFT',
         };
-        const values: Partial<Record<CompetitionField, string>> = {
-          name: item.title.trim(),
-          officialUrl: item.link,
-          sourceUrl: item.link,
-        };
-        if (item.organizer?.trim()) values.organizer = item.organizer.trim();
-        if (item.content?.trim()) values.intro = item.content.trim();
+        const values = proposedFields;
 
         for (const [field, value] of Object.entries(values)) {
           (data as Record<string, unknown>)[field] = value;
@@ -156,6 +225,7 @@ export class PublisherService {
             oldValue: null,
             newValue: serialize(value),
             origin: 'CRAWL',
+            sourceId,
           })),
         });
       } else {
@@ -172,6 +242,7 @@ export class PublisherService {
             oldValue: serialize(oldValue),
             newValue: serialize(value),
             origin: 'CRAWL',
+            sourceId,
           });
         }
 
@@ -186,7 +257,7 @@ export class PublisherService {
         changed = revisions.length;
       }
 
-      for (const candidate of item.stages ?? []) {
+      for (const candidate of candidateStages) {
         const current = await tx.competitionTimeline.findFirst({
           where: {
             competitionId: competitionId!,
@@ -216,6 +287,7 @@ export class PublisherService {
               oldValue: null,
               newValue: serialize(candidate.startAt),
               origin: 'CRAWL',
+              sourceId,
             });
           }
           if (candidate.endAt) {
@@ -225,6 +297,7 @@ export class PublisherService {
               oldValue: null,
               newValue: serialize(candidate.endAt),
               origin: 'CRAWL',
+              sourceId,
             });
           }
           if (revisions.length) await tx.crawlRevision.createMany({ data: revisions });
@@ -247,6 +320,7 @@ export class PublisherService {
             oldValue: serialize(current.startAt),
             newValue: serialize(candidate.startAt),
             origin: 'CRAWL',
+            sourceId,
           });
         }
         if (candidate.endAt && !sameValue(current.endAt, candidate.endAt)) {
@@ -257,6 +331,7 @@ export class PublisherService {
             oldValue: serialize(current.endAt),
             newValue: serialize(candidate.endAt),
             origin: 'CRAWL',
+            sourceId,
           });
         }
 

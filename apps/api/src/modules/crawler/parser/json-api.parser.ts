@@ -1,4 +1,5 @@
 import { Injectable } from '@nestjs/common';
+import { load } from 'cheerio';
 import {
   extractFirstExplicitDate,
   extractTimelineStages,
@@ -108,7 +109,8 @@ export class JsonApiParser implements CrawlerParser {
     }
 
     const config = asConfig(source.selectorConf);
-    return findItems(root, config.itemsPath).flatMap((item) => {
+    const pattern = config.titlePattern ? new RegExp(config.titlePattern, 'iu') : null;
+    const items = findItems(root, config.itemsPath).flatMap((item) => {
       if (!item || typeof item !== 'object') return [];
       const record = item as Record<string, unknown>;
       const title = asText(
@@ -120,13 +122,16 @@ export class JsonApiParser implements CrawlerParser {
           firstValue(record, ['url', 'link', 'detailUrl', 'outLink', 'href']),
       );
       const link = safeUrl(rawLink ?? config.defaultUrl ?? null, result.url || source.url);
-      if (!title || !link) return [];
+      if (!title || !link || (pattern && !pattern.test(title))) return [];
 
-      const content =
+      const rawContent =
         asText(
           pathValue(item, config.contentPath) ??
             firstValue(record, ['content', 'summary', 'description', 'intro']),
         ) ?? null;
+      const content = rawContent?.includes('<')
+        ? load(rawContent).text().replace(/\s+/g, ' ').trim().slice(0, 20_000)
+        : rawContent?.slice(0, 20_000) ?? null;
       const rawTime =
         pathValue(item, config.publishTimePath) ??
         firstValue(record, ['publishTime', 'publishDate', 'createTime', 'date', 'time']);
@@ -147,6 +152,7 @@ export class JsonApiParser implements CrawlerParser {
         },
       ];
     });
+    return config.maxItems === undefined ? items : items.slice(0, Math.max(1, Math.floor(config.maxItems)));
   }
 
   parseDetail(result: FetchResult, source: ParserSource): CrawlParsedItem {

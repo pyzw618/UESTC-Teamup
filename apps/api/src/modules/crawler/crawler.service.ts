@@ -9,7 +9,8 @@ import { randomUUID } from 'node:crypto';
 import { PrismaService } from '../../common/prisma.service';
 import { RedisService } from '../../common/redis.service';
 import { CRAWLER_PRESETS } from './crawler.presets';
-import type { CrawlRunSummary, FetchResult, ParserSource } from './crawler.types';
+import { OFFICIAL_COMPETITION_PRESETS } from './official-competition.presets';
+import type { CrawlParsedItem, CrawlRunSummary, FetchResult, ParserSource } from './crawler.types';
 import { CssParser } from './parser/css.parser';
 import { JsonApiParser } from './parser/json-api.parser';
 import { FetcherService } from './fetcher.service';
@@ -19,6 +20,22 @@ import { PublisherService } from './publisher.service';
 
 const LOCK_TTL_SECONDS = 15 * 60;
 const LOCK_PREFIX = 'crawl:lock:';
+
+type SeenCrawlItem = { link: string; externalId?: string | null; processed: boolean };
+
+function itemKey(item: Pick<CrawlParsedItem, 'link' | 'externalId'>): string {
+  return item.externalId ? `id:${item.externalId}` : `url:${item.link}`;
+}
+
+export function filterUnseenCrawlItems(items: CrawlParsedItem[], previous: SeenCrawlItem[]): CrawlParsedItem[] {
+  const seen = new Set(previous.filter((item) => item.processed).map(itemKey));
+  return items.filter((item) => {
+    const key = itemKey(item);
+    if (seen.has(key)) return false;
+    seen.add(key);
+    return true;
+  });
+}
 
 @Injectable()
 export class CrawlerService implements OnModuleInit {
@@ -34,12 +51,28 @@ export class CrawlerService implements OnModuleInit {
   ) {}
 
   async onModuleInit(): Promise<void> {
-    for (const preset of CRAWLER_PRESETS) {
+    for (const preset of [...CRAWLER_PRESETS, ...OFFICIAL_COMPETITION_PRESETS]) {
       const existing = await this.prisma.crawlSource.findFirst({
-        where: { url: preset.url },
+        where: { name: preset.name },
         select: { id: true },
       });
       if (!existing) await this.prisma.crawlSource.create({ data: preset });
+      else {
+        // Presets are code-managed; keep selectors, list URLs and rollout state
+        // in sync on upgrades without resetting health or crawl history.
+        await this.prisma.crawlSource.update({
+          where: { id: existing.id },
+          data: {
+            url: preset.url,
+            kind: preset.kind,
+            cron: preset.cron,
+            parseStrategy: preset.parseStrategy,
+            selectorConf: preset.selectorConf,
+            enabled: preset.enabled,
+            priority: preset.priority,
+          },
+        });
+      }
     }
   }
 
@@ -51,8 +84,10 @@ export class CrawlerService implements OnModuleInit {
         name: true,
         url: true,
         kind: true,
+        priority: true,
         cron: true,
         parseStrategy: true,
+        selectorConf: true,
         enabled: true,
         lastRunAt: true,
         consecutiveFails: true,
@@ -125,24 +160,61 @@ export class CrawlerService implements OnModuleInit {
       }
 
       const parser = this.parserFor(source.parseStrategy);
-      const items = parser.parseList(result, this.toParserSource(source));
+      const parserSource = this.toParserSource(source);
+      const items = parser.parseList(result, parserSource);
       if (items.length === 0) {
         throw new Error(`Parser returned no items for source "${source.name}"`);
       }
 
+      const externalIds = items.flatMap((item) => item.externalId ? [item.externalId] : []);
+      const links = items.filter((item) => !item.externalId).map((item) => item.link);
+      const previous = await this.prisma.crawlItem.findMany({
+        where: {
+          sourceId: source.id,
+          OR: [
+            ...(externalIds.length ? [{ externalId: { in: externalIds } }] : []),
+            ...(links.length ? [{ link: { in: links } }] : []),
+          ],
+        },
+        select: { link: true, externalId: true, processed: true },
+      });
+      const unseen = filterUnseenCrawlItems(items, previous);
+      if (unseen.length === 0) {
+        await this.differ.storeSuccessful(source.id, difference.contentHash);
+        await this.recordSuccess(source.id);
+        return {
+          sourceId,
+          sourceName: source.name,
+          skipped: true,
+          reason: 'no-new-items',
+          fetched: items.length,
+          created: 0,
+          updated: 0,
+          anomalies: 0,
+          finishedAt: new Date(),
+        };
+      }
+
       let created = 0;
       let updated = 0;
-      for (const item of items) {
+      const config = this.sourceConfig(source.selectorConf);
+      // Lists are normally newest-first (including the optional date sort).
+      // Publish oldest first so sourceUrl ends on the newest unseen notice.
+      for (const listedItem of unseen.reverse()) {
+        const item = await this.enrichDetail(listedItem, source, parserSource);
         const crawlItem = await this.prisma.crawlItem.create({
           data: {
             sourceId: source.id,
             title: item.title,
             link: item.link,
+            externalId: item.externalId ?? null,
             rawText: item.rawText ?? item.content ?? null,
           },
         });
 
-        const decision = await this.matcher.match(item.title);
+        const decision = await this.matcher.match(
+          typeof config.competitionName === 'string' ? config.competitionName : item.title,
+        );
         const published = await this.publisher.publish(source.id, decision, item);
         if (published.published) {
           if (decision.action === 'CREATE_DRAFT') created += 1;
@@ -181,10 +253,10 @@ export class CrawlerService implements OnModuleInit {
     }
   }
 
-  async runAll(): Promise<CrawlRunSummary[]> {
+  async runAll(priority?: number): Promise<CrawlRunSummary[]> {
     const sources = await this.prisma.crawlSource.findMany({
-      where: { enabled: true },
-      orderBy: [{ name: 'asc' }, { id: 'asc' }],
+      where: { enabled: true, ...(priority === undefined ? {} : { priority }) },
+      orderBy: [{ priority: 'asc' }, { name: 'asc' }, { id: 'asc' }],
       select: { id: true },
     });
 
@@ -215,7 +287,8 @@ export class CrawlerService implements OnModuleInit {
 
     const result = await this.fetcher.fetch(source.url);
     const parser = this.parserFor(source.parseStrategy);
-    const items = parser.parseList(result, this.toParserSource(source));
+    const parserSource = this.toParserSource(source);
+    const items = parser.parseList(result, parserSource);
     return {
       sourceId: source.id,
       sourceName: source.name,
@@ -231,6 +304,35 @@ export class CrawlerService implements OnModuleInit {
     if (strategy === ParseStrategy.CSS) return this.cssParser;
     if (strategy === ParseStrategy.JSON_API) return this.jsonParser;
     throw new BadRequestException(`暂不支持解析策略：${strategy}`);
+  }
+
+  private sourceConfig(value: Prisma.JsonValue): Record<string, unknown> {
+    return value && typeof value === 'object' && !Array.isArray(value)
+      ? value as Record<string, unknown>
+      : {};
+  }
+
+  private async enrichDetail(
+    item: CrawlParsedItem,
+    source: { url: string; parseStrategy: ParseStrategy; selectorConf: Prisma.JsonValue },
+    parserSource: ParserSource,
+  ): Promise<CrawlParsedItem> {
+    const config = this.sourceConfig(source.selectorConf);
+    if (source.parseStrategy !== ParseStrategy.CSS || config.fetchDetail !== true) return item;
+    if (new URL(item.link).hostname !== new URL(source.url).hostname) return item;
+    try {
+      const detail = this.cssParser.parseDetail(await this.fetcher.fetch(item.link), parserSource);
+      return {
+        ...item,
+        publishTime: item.publishTime ?? detail.publishTime,
+        content: detail.content?.slice(0, 20_000) ?? item.content,
+        rawText: detail.rawText?.slice(0, 20_000) ?? item.rawText,
+        stages: detail.content && detail.stages?.length ? detail.stages : item.stages,
+      };
+    } catch {
+      // A list item remains useful when its detail page is temporarily unavailable.
+      return item;
+    }
   }
 
   private toParserSource(source: {

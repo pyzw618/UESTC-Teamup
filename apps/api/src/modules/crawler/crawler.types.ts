@@ -44,6 +44,14 @@ export interface CssParserConfig {
   contentSelector?: string;
   detailTitleSelector?: string;
   detailContentSelector?: string;
+  competitionName?: string;
+  officialUrl?: string;
+  titlePattern?: string;
+  linkPattern?: string;
+  maxItems?: number;
+  fetchDetail?: boolean;
+  publishTimeFromItemText?: boolean;
+  sortByPublishTime?: boolean;
 }
 
 export interface JsonApiParserConfig {
@@ -55,6 +63,10 @@ export interface JsonApiParserConfig {
   organizerPath?: string;
   externalIdPath?: string;
   defaultUrl?: string;
+  competitionName?: string;
+  officialUrl?: string;
+  titlePattern?: string;
+  maxItems?: number;
 }
 
 export type ParserConfig = CssParserConfig | JsonApiParserConfig | Record<string, unknown>;

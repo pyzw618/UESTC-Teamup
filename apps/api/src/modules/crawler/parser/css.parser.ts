@@ -45,22 +45,27 @@ export class CssParser implements CrawlerParser {
     const contentSelector = config.contentSelector ?? '.summary, .description, .intro, .content';
 
     const items: CrawlParsedItem[] = [];
+    const pattern = config.titlePattern ? new RegExp(config.titlePattern, 'iu') : null;
+    const linkPattern = config.linkPattern ? new RegExp(config.linkPattern, 'iu') : null;
+    const limit = config.maxItems === undefined ? Infinity : Math.max(1, Math.floor(config.maxItems));
 
     $(itemSelector).each((_index, element) => {
       const el = $(element);
-      const titleElement = el.find(titleSelector).first();
+      const titleElement = el.is(titleSelector) ? el : el.find(titleSelector).first();
       const title = (titleElement.attr('title') ?? titleElement.text()).replace(/\s+/g, ' ').trim();
+      if (!title || (pattern && !pattern.test(title))) return;
 
-      const linkElement = titleElement.is('a[href]') ? titleElement : el.find(linkSelector).first();
+      const linkElement = titleElement.is('a[href]') ? titleElement : el.is(linkSelector) ? el : el.find(linkSelector).first();
       const href = linkElement.attr('href');
       const link = href ? absoluteHttpUrl(href, result.url || source.url) : null;
-      if (!title || !link) return;
+      if (!title || !link || href === '#' || (linkPattern && !linkPattern.test(link))) return;
 
       const timeText = el.find(timeSelector).first().text().trim();
       const rawText = el.text().replace(/\s+/g, ' ').trim();
       const content = el.find(contentSelector).first().text().replace(/\s+/g, ' ').trim();
-      const publishTime = timeText
-        ? extractFirstExplicitDate(timeText, result.fetchedAt)
+      const dateText = timeText || (config.publishTimeFromItemText ? rawText : '');
+      const publishTime = dateText
+        ? extractFirstExplicitDate(dateText, result.fetchedAt)
         : null;
 
       items.push({
@@ -73,7 +78,10 @@ export class CssParser implements CrawlerParser {
       });
     });
 
-    return items;
+    if (config.sortByPublishTime) {
+      items.sort((left, right) => (right.publishTime?.getTime() ?? 0) - (left.publishTime?.getTime() ?? 0));
+    }
+    return items.slice(0, limit);
   }
 
   parseDetail(result: FetchResult, source: ParserSource): CrawlParsedItem {

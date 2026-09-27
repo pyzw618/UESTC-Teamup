@@ -297,6 +297,8 @@ model CrawlSource {
   cron          String
   parseStrategy ParseStrategy
   selectorConf  Json
+  // 1 = 成电官方聚合，2 = 赛事官网，3 = 其他校内来源
+  priority      Int          @default(3)
   enabled       Boolean      @default(true)
 
   lastRunAt        DateTime?
@@ -306,6 +308,7 @@ model CrawlSource {
   snapshots CrawlSnapshot[]
   items     CrawlItem[]
   anomalies CrawlAnomaly[]
+  revisions CrawlRevision[]
 }
 
 model CrawlSnapshot {
@@ -324,6 +327,7 @@ model CrawlItem {
   sourceId  String
   title     String
   link      String
+  externalId String?
   rawText   String?  @db.Text
   fetchedAt DateTime @default(now())
   processed Boolean  @default(false)
@@ -331,6 +335,7 @@ model CrawlItem {
   source CrawlSource @relation(fields: [sourceId], references: [id], onDelete: Cascade)
 
   @@index([sourceId, processed])
+  @@index([sourceId, externalId])
 }
 
 // 版本记录：CRAWL 预留 / MANUAL 人工修改 / ROLLBACK 回滚动作，供 /admin/revisions 回滚
@@ -338,6 +343,7 @@ model CrawlRevision {
   id            String   @id @default(cuid())
   competitionId String?
   timelineId    String?
+  sourceId      String?
   field         String
   oldValue      String?  @db.Text
   newValue      String?  @db.Text
@@ -346,9 +352,11 @@ model CrawlRevision {
 
   competition Competition?        @relation(fields: [competitionId], references: [id], onDelete: SetNull)
   timeline    CompetitionTimeline? @relation(fields: [timelineId], references: [id], onDelete: SetNull)
+  source      CrawlSource? @relation(fields: [sourceId], references: [id], onDelete: SetNull)
 
   @@index([competitionId, createdAt])
   @@index([timelineId, createdAt])
+  @@index([sourceId])
 }
 
 model CrawlAnomaly {

@@ -14,6 +14,8 @@ interface PublicCard {
   major: string | null;
   bio: string | null;
   skills: { skill: string; level: number | null }[];
+  /** 学号：仅登录用户的响应中下发（游客请求服务端直接裁掉） */
+  studentNo?: string;
   contact?: string | null;
 }
 
@@ -59,12 +61,15 @@ const goalLabel = (g: string) => TeamGoalLabel[g as TeamGoal] ?? g;
       </el-empty>
     </div>
     <template v-else-if="user">
-      <!-- 公开名片：不含学号（A1），校园身份由校园邮箱验证表达 -->
+      <!-- 公开名片：学号仅登录可见（游客响应中无该字段，服务端裁剪） -->
       <section class="glass p-28px animate-appear">
         <div class="flex items-center gap-16px flex-wrap">
           <UserAvatar :name="user.nickname || user.college || 'U'" :size="72" />
           <div class="flex-1 min-w-0">
-            <h1 class="text-22px font-extrabold m-0 color-ink">{{ user.nickname || '同学' }}</h1>
+            <h1 class="text-22px font-extrabold m-0 color-ink">
+              {{ user.nickname || '同学' }}
+              <span v-if="user.studentNo" class="text-13px font-normal color-ink-faint ml-6px">学号 {{ user.studentNo }}</span>
+            </h1>
             <div class="text-14px color-ink-soft mt-4px">
               <template v-if="user.college">{{ user.college }}</template>
               <template v-if="user.grade"> · {{ user.grade }} 级</template>

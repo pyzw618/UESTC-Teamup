@@ -95,7 +95,7 @@ async function submit() {
 
   submitting.value = true;
   try {
-    const team = await api.post<{ id: string; competitionPending?: boolean }>('/teams', {
+    const team = await api.post<{ id: string }>('/teams', {
       competitionId: form.value.manualMode ? undefined : form.value.competitionId,
       competitionName: form.value.manualMode ? form.value.competitionName.trim() : undefined,
       goal: form.value.goal,
@@ -113,12 +113,8 @@ async function submit() {
         intro: m.intro || undefined,
       })),
     });
-    // B2：手动新建的竞赛为 DRAFT 待审核 —— 不能再说「已上墙」，明确告知暂不可见
-    if (team.competitionPending) {
-      ElMessage.warning('已发布！新竞赛正在等待管理员审核，审核通过前其他同学暂无法在列表中看到这条招募帖');
-    } else {
-      ElMessage.success('招募帖已上墙，坐等同学加你！');
-    }
+    // 手动填写的新竞赛免审核即时发布，无需区分提示
+    ElMessage.success('招募帖已上墙，坐等同学加你！');
     router.push(`/teams/${team.id}`);
   } catch (e) {
     ElMessage.error(e instanceof Error ? e.message : '发布失败');

@@ -69,6 +69,8 @@ export interface TeamLeaderView {
   college: string | null;
   grade: number | null;
   major: string | null;
+  /** 学号：仅登录用户的响应中下发（服务端按登录态裁剪），游客不可见 */
+  studentNo?: string;
 }
 
 /** 竞赛详情页内嵌的招募帖摘要 */
@@ -113,7 +115,7 @@ export interface TeamDetail extends TeamListItem {
   wechat: string | null;
   /** 当前查看者是否已解锁联系方式 */
   contactUnlocked: boolean;
-  competition: { id: string; name: string; levels: string[]; officialUrl: string | null; status?: string };
+  competition: { id: string; name: string; levels: string[]; officialUrl: string | null };
   /** 已有成员情况（队长手填，纯展示；游客不可见） */
   members: { id: string; grade: number | null; college: string | null; major: string | null; rank: string | null; intro: string | null }[];
   /**

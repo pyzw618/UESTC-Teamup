@@ -32,7 +32,7 @@ const MANUAL_STATUSES: TeamStatus[] = [TeamStatus.RECRUITING, TeamStatus.FULL, T
 
 /**
  * 用户字段投影：只用于避免把 Prisma User 对象整份返回（会带上 passwordHash / email）。
- * 2026-09-27 隐私收敛（A1）：公开序列化不再包含 studentNo，见 UserSerializer 注释。
+ * 学号随 SAFE_USER_SELECT 查出，由 UserSerializer 按登录态裁剪（游客不下发）。
  */
 const SAFE_USER_SELECT = {
   id: true,
@@ -41,6 +41,7 @@ const SAFE_USER_SELECT = {
   grade: true,
   major: true,
   bio: true,
+  studentNo: true,
   skills: { select: { skill: true, level: true } },
 } satisfies Prisma.UserSelect;
 
@@ -230,8 +231,6 @@ export class TeamsService {
         name: team.competition.name,
         levels: team.competition.levels.map((l) => l.level),
         officialUrl: team.competition.officialUrl,
-        // B2：手动新建的竞赛处于 DRAFT（待审核），招募帖暂不出现在公开发现流，需明确告知队长
-        status: team.competition.status,
       },
       leader: loggedIn ? this.serialize(team.leader) : null,
       viewer: { isLeader, isAdmin, hasIntent },
@@ -371,13 +370,7 @@ export class TeamsService {
         members: { create: this.normalizeMembers(input.members) },
       },
     });
-
-    // B2：手动建档的竞赛处于 DRAFT（待管理员审核），明确返回给前端做「暂不可见」提示
-    const competition = await this.prisma.competition.findUnique({
-      where: { id: competitionId },
-      select: { status: true },
-    });
-    return { ...team, competitionPending: competition?.status === 'DRAFT' };
+    return team;
   }
 
   async update(actorId: string, teamId: string, input: UpsertTeamInput) {
@@ -491,7 +484,7 @@ export class TeamsService {
     const rows = await this.prisma.team.findMany({
       where: { leaderId: userId },
       include: {
-        competition: { select: { id: true, name: true, status: true } },
+        competition: { select: { id: true, name: true } },
         leader: { select: SAFE_USER_SELECT },
         _count: { select: { members: true, intents: true } },
       },
@@ -513,8 +506,6 @@ export class TeamsService {
       commentCount: commentCounts.get(t.id) ?? 0,
       createdAt: t.createdAt,
       competition: { id: t.competition.id, name: t.competition.name },
-      // B2：竞赛待审核标记，前端在「我的帖子」展示 pending 提示
-      competitionPending: t.competition.status === 'DRAFT',
       leader: this.serialize(t.leader),
       isLeader: true,
     }));
@@ -537,7 +528,8 @@ export class TeamsService {
 
   /**
    * 选择竞赛或手动填写竞赛名（二选一）；手动填写时按名称自动建档（当年届次）。
-   * 用户可无审核建档，因此新建的竞赛一律为 DRAFT（不进公开列表），并通知管理员待审核。
+   * 2026-09-27 产品确认：用户手动建档**免审核、即时发布**（PUBLISHED），
+   * 仅通知管理员知悉；命中同届同名的历史 DRAFT 档案时一并转为发布。
    * 唯一索引为 (name, year)：并发建档撞 P2002 时回退取当年已存在的那条。
    */
   private async resolveCompetition(input: UpsertTeamInput): Promise<string> {
@@ -548,17 +540,21 @@ export class TeamsService {
       const existing = await this.prisma.competition.findFirst({ where: { name, year } });
       if (existing) {
         competitionId = existing.id;
+        if (existing.status === 'DRAFT') {
+          await this.prisma.competition.update({
+            where: { id: existing.id },
+            data: { status: 'PUBLISHED' },
+          });
+        }
       } else {
         let createdId: string | undefined;
-        let freshlyCreated = false;
         try {
           const created = await this.prisma.competition.create({
-            data: { name, year, sourceUrl: '用户手动填写', status: 'DRAFT' },
+            data: { name, year, sourceUrl: '用户手动填写', status: 'PUBLISHED' },
           });
           createdId = created.id;
-          freshlyCreated = true;
         } catch (e) {
-          // 唯一索引冲突：另一个请求刚建了同届同名竞赛，回退取它（对方已发过待审核通知）
+          // 唯一索引冲突：另一个请求刚建了同届同名竞赛，回退取它
           if (e instanceof Prisma.PrismaClientKnownRequestError && e.code === 'P2002') {
             const dup = await this.prisma.competition.findFirst({ where: { name, year } });
             if (!dup) throw e;
@@ -569,20 +565,18 @@ export class TeamsService {
         }
         competitionId = createdId;
 
-        // 待审核：通知全体管理员（用户手动建档，未审核不进入公开列表）
-        if (freshlyCreated) {
-          const admins = await this.prisma.user.findMany({ where: { role: 'ADMIN' }, select: { id: true } });
-          await this.notify.notifyMany(
-            admins.map((a) => a.id),
-            NotificationKind.CRAWL_ANOMALY,
-            {
-              competitionId,
-              name,
-              rule: 'USER_CREATED_COMPETITION',
-              message: `用户手动建档竞赛「${name}」（${year} 届），当前为草稿，待审核后发布`,
-            },
-          );
-        }
+        // 知会全体管理员（免审核策略下的建档留痕，仅通知不阻塞发布）
+        const admins = await this.prisma.user.findMany({ where: { role: 'ADMIN' }, select: { id: true } });
+        await this.notify.notifyMany(
+          admins.map((a) => a.id),
+          NotificationKind.CRAWL_ANOMALY,
+          {
+            competitionId,
+            name,
+            rule: 'USER_CREATED_COMPETITION',
+            message: `用户手动建档竞赛「${name}」（${year} 届），已即时发布`,
+          },
+        );
       }
     }
     if (!competitionId) throw new BadRequestException('请选择竞赛或手动填写竞赛名称');
@@ -644,6 +638,7 @@ export class TeamsService {
       grade: user.grade,
       major: user.major,
       bio: user.bio,
+      studentNo: user.studentNo,
       skills: user.skills,
       teamIds: [],
     };

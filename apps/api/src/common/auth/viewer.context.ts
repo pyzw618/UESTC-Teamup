@@ -28,7 +28,7 @@ export class ViewerContext {
 
 export type SerializableUser = Pick<
   User,
-  'id' | 'nickname' | 'college' | 'grade' | 'major' | 'bio'
+  'id' | 'nickname' | 'college' | 'grade' | 'major' | 'studentNo' | 'bio'
 > & {
   // 只要求序列化真正用到的字段（user 关系通常只 select skill/level）
   skills?: { skill: string; level: number | null }[];
@@ -46,19 +46,21 @@ export interface SerializedUser {
   major: string | null;
   bio: string | null;
   skills: { skill: string; level: number | null }[];
+  studentNo?: string;
   contact?: string | null;
 }
 
 /**
- * 用户序列化。2026-09-27 隐私收敛（docs/UESTC-TeamUp_main_issues.md A1）：
- * 序列化结果不再包含 studentNo —— 完整学号不是公开浏览所必需的信息，
- * 校园身份由「校园邮箱已验证」表达；本人资料走 /users/me 自行查看。
+ * 用户序列化。2026-09-27 隐私口径（产品确认）：
+ * 学号对**登录用户**可见（查看招募帖 / 名片时展示），**游客不下发**——
+ * 校园身份本身由校园邮箱验证表达，公开互联网不可批量抓取学号。
  */
 @Injectable()
 export class UserSerializer {
   constructor(private readonly viewer: ViewerContext) {}
 
   serialize(user: SerializableUser): SerializedUser {
+    const loggedIn = this.viewer.get().userId != null;
     return {
       id: user.id,
       nickname: user.nickname,
@@ -67,6 +69,7 @@ export class UserSerializer {
       major: user.major,
       bio: user.bio ?? null,
       skills: (user.skills ?? []).map((s) => ({ skill: s.skill, level: s.level })),
+      ...(loggedIn && user.studentNo ? { studentNo: user.studentNo } : {}),
       contact: user.contact ?? null,
     };
   }

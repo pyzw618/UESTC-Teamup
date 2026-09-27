@@ -230,6 +230,7 @@ export class CompetitionsService {
             grade: true,
             major: true,
             bio: true,
+            studentNo: true,
           },
         },
         _count: { select: { members: true, intents: true } },

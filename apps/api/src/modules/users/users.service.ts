@@ -96,7 +96,7 @@ export class UsersService {
     return this.myProfile(userId);
   }
 
-  /** 公开名片。2026-09-27 隐私收敛（A1）：不含 studentNo，校园身份由校园邮箱验证表达 */
+  /** 公开名片。学号仅对登录用户返回（游客不下发，裁剪在 UserSerializer 内按登录态实施） */
   async publicCard(id: string) {
     const user = await this.prisma.user.findUnique({
       where: { id },
@@ -111,6 +111,7 @@ export class UsersService {
       grade: user.grade,
       major: user.major,
       bio: user.bio,
+      studentNo: user.studentNo,
       skills: user.skills,
       teamIds: [],
     });

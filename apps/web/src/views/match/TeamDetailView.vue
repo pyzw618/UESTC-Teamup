@@ -43,9 +43,6 @@ const isAdminViewer = computed(() => !!team.value?.viewer?.isAdmin && !isLeaderV
 const contactUnlocked = computed(() => !!team.value?.contactUnlocked);
 const hasIntent = computed(() => !!team.value?.viewer?.hasIntent);
 
-/** B2：手动新建的竞赛待审核 —— 招募帖暂不出现在公共发现流，需要明确告知队长 */
-const competitionPending = computed(() => team.value?.competition?.status === 'DRAFT');
-
 /** competition.officialUrl 来自采集，走协议白名单后再绑定 */
 const competitionUrl = computed(() => safeHref(team.value?.competition?.officialUrl));
 
@@ -256,16 +253,6 @@ async function submitEdit() {
     </div>
 
     <div v-else-if="team" class="max-w-860px mx-auto flex flex-col gap-16px">
-      <!-- B2：竞赛待审核提示（手动建档的 DRAFT 竞赛，招募帖暂不可被发现） -->
-      <el-alert
-        v-if="competitionPending && isLeaderViewer"
-        type="warning"
-        :closable="false"
-        show-icon
-        title="竞赛档案待审核：这条招募帖暂时不会出现在公共发现列表"
-        description="你手动填写的新竞赛已提交管理员审核，审核发布后招募帖即可被其他同学看到。你也可以先在「我的帖子」里管理这条招募。"
-      />
-
       <!-- 头部 -->
       <section class="glass p-24px animate-appear">
         <div class="flex items-start justify-between gap-12px flex-wrap">
@@ -294,7 +281,10 @@ async function submitEdit() {
             >竞赛官网 ↗</a>
             <router-link v-if="team.leader" :to="`/u/${team.leader.id}`" class="leader-line">
               <UserAvatar :name="team.leader.nickname || team.leader.college || 'U'" :size="26" />
-              <span class="text-13px color-ink-soft">发布者 <b class="color-ink">{{ team.leader.nickname || '同学' }}</b></span>
+              <span class="text-13px color-ink-soft">
+                发布者 <b class="color-ink">{{ team.leader.nickname || '同学' }}</b>
+                <template v-if="team.leader.studentNo"> · 学号 {{ team.leader.studentNo }}</template>
+              </span>
             </router-link>
             <div class="text-12px color-ink-faint mt-2px">
               发布于 {{ fmtDate(team.createdAt) }} · 已有 {{ team.memberCount }}<template v-if="team.targetSize"> / 计划 {{ team.targetSize }}</template> 人 · 💬 {{ team.commentCount }} 条留言

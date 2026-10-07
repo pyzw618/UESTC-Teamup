@@ -49,6 +49,9 @@ importers:
       ioredis:
         specifier: ^5.4.2
         version: 5.11.1
+      prisma:
+        specifier: ^5.22.0
+        version: 5.22.0
       reflect-metadata:
         specifier: ^0.2.2
         version: 0.2.2
@@ -71,9 +74,6 @@ importers:
       '@types/node':
         specifier: ^22.10.2
         version: 22.20.3
-      prisma:
-        specifier: ^5.22.0
-        version: 5.22.0
       tsx:
         specifier: ^4.19.2
         version: 4.23.13

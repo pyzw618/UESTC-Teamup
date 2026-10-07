@@ -2,24 +2,62 @@
 # 后端镜像（NestJS + Prisma）
 # 构建上下文必须是【仓库根目录】（pnpm workspace 跨包依赖 @teamup/shared）：
 #   docker build -f docker/Dockerfile.api -t teamup-api .
-
-FROM node:20-alpine AS build
-RUN corepack enable
-WORKDIR /repo
-COPY . .
-RUN pnpm install --frozen-lockfile
-RUN pnpm -F @teamup/shared build && pnpm -F @teamup/api build
-
-FROM node:20-alpine AS runtime
-# Prisma 引擎在 Alpine 上依赖 openssl
-RUN apk add --no-cache openssl && corepack enable
-ENV NODE_ENV=production
-WORKDIR /repo
-COPY --from=build /repo ./
-WORKDIR /repo/apps/api
-EXPOSE 3000
-# 首次部署 / 升级后执行迁移（本目录含 prisma/schema.prisma）：
-#   docker compose exec api npx prisma migrate deploy
+#
+# 三阶段设计（deps / build / runtime）：
+#   deps    —— 仅安装 @teamup/api 子树的生产依赖（web 的依赖不进镜像），
+#              清单文件不变时命中缓存，改源码重新构建不再重装依赖；
+#   build   —— 全量安装（含 devDependencies）+ 构建 shared/api 产物；
+#   runtime —— 只带生产依赖、构建产物与 prisma schema/migrations，
+#              不含源码与 devDependencies，比旧版「整仓 COPY」方案体积小约一半以上。
+#
 # 注意：tsconfig include 同时含 src 与 prisma/seed.ts，tsc 以项目根为 rootDir，
 # 因此入口产物是 dist/src/main.js（不是 dist/main.js）。
+
+FROM node:20-alpine AS deps
+# 用 npm 钉死 pnpm 版本（与 pnpm-lock.yaml 的 lockfileVersion 9.0 匹配、
+# 与本地开发所用版本一致），不走 corepack：旧版 corepack 校验新版 pnpm 签名可能失败
+RUN npm install -g pnpm@12.4.2
+WORKDIR /repo
+# 逐个拷贝清单以利用层缓存（frozen-lockfile 要求全部 importer 的清单在场）
+COPY package.json pnpm-workspace.yaml pnpm-lock.yaml ./
+COPY apps/api/package.json apps/api/
+COPY apps/web/package.json apps/web/
+COPY packages/shared/package.json packages/shared/
+# postinstall 会跑 prisma generate，先生成 schema
+COPY apps/api/prisma/schema.prisma apps/api/prisma/
+# 只装 api 子树的生产依赖：prisma CLI 已移入 dependencies，容器内
+# prisma generate / migrate deploy 都依赖它（见 apps/api/package.json）
+RUN pnpm --filter @teamup/api... install --frozen-lockfile --prod
+
+FROM node:20-alpine AS build
+# Prisma 引擎在 Alpine 上依赖 openssl
+RUN apk add --no-cache openssl && npm install -g pnpm@12.4.2
+WORKDIR /repo
+COPY . .
+RUN pnpm install --frozen-lockfile \
+  && pnpm -F @teamup/shared build && pnpm -F @teamup/api build
+
+FROM node:20-alpine AS runtime
+RUN apk add --no-cache openssl
+ENV NODE_ENV=production
+WORKDIR /repo
+# pnpm 的 node_modules 内部是相对 symlink，三处目录按原布局拷贝即可保持解析链路：
+#   /repo/node_modules（.pnpm 虚拟store + prisma 生成物）
+#   → /repo/apps/api/node_modules（含 .bin/prisma，供 npx 调用）
+#   → /repo/packages/shared（package.json + dist）
+COPY --from=deps  --chown=node:node /repo/node_modules          ./node_modules
+COPY --from=deps  --chown=node:node /repo/apps/api/node_modules ./apps/api/node_modules
+COPY --from=build --chown=node:node /repo/packages/shared/dist  ./packages/shared/dist
+COPY              --chown=node:node /repo/packages/shared/package.json ./packages/shared/
+COPY --from=build --chown=node:node /repo/apps/api/dist         ./apps/api/dist
+COPY              --chown=node:node /repo/apps/api/prisma       ./apps/api/prisma
+COPY              --chown=node:node /repo/apps/api/package.json ./apps/api/
+COPY              --chown=node:node /repo/package.json /repo/pnpm-workspace.yaml ./
+USER node
+EXPOSE 3000
+WORKDIR /repo/apps/api
+# 首次部署 / 升级后执行迁移（本目录含 prisma/schema.prisma 与 migrations/）：
+#   docker compose exec api npx prisma migrate deploy
+# 生产确需种子数据时（精简镜像不含 tsx，用编译产物代替）：
+#   docker compose exec -e ALLOW_PROD_SEED=true api node dist/prisma/seed.js
 CMD ["node", "dist/src/main.js"]

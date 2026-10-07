@@ -2,12 +2,23 @@
 # 前端镜像（Vite 构建产物 + nginx 托管静态资源并反代 /api）
 # 构建上下文必须是【仓库根目录】：
 #   docker build -f docker/Dockerfile.web -t teamup-web .
+#
+# 与 Dockerfile.api 同一分层策略：先装依赖（命中缓存）再拷源码。
+# 只装 @teamup/web 子树依赖——api 不参与前端构建，
+# 过滤安装同时避免触发 api 的 prisma generate postinstall。
 
 FROM node:20-alpine AS build
-RUN corepack enable
+RUN npm install -g pnpm@12.4.2
 WORKDIR /repo
-COPY . .
-RUN pnpm install --frozen-lockfile
+# frozen-lockfile 要求全部 importer 的清单在场；清单不变时命中缓存
+COPY package.json pnpm-workspace.yaml pnpm-lock.yaml ./
+COPY apps/api/package.json apps/api/
+COPY apps/web/package.json apps/web/
+COPY packages/shared/package.json packages/shared/
+RUN pnpm --filter @teamup/web... install --frozen-lockfile
+# vite 直接引用 shared 的 TS 源码（见 apps/web/vite.config.ts 的 alias）
+COPY packages/shared packages/shared
+COPY apps/web apps/web
 RUN pnpm -F @teamup/shared build && pnpm -F @teamup/web build
 
 FROM nginx:1.27-alpine AS runtime

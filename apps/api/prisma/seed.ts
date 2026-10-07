@@ -12,7 +12,7 @@
  * - ALLOW_PROD_SEED：该脚本会清空全库，NODE_ENV=production 时默认拒绝执行，
  *   确需在生产执行须显式设置 ALLOW_PROD_SEED=true。
  */
-import { readFileSync } from 'fs';
+import { existsSync, readFileSync } from 'fs';
 import { join } from 'path';
 import { PrismaClient, Audience, CompetitionFormat, Level, PublishStatus, RoleType, TeamGoal, TeamStatus } from '@prisma/client';
 import { hashPassword } from '../src/common/password';
@@ -410,9 +410,17 @@ async function main() {
     );
   }
 
-  const bonusFile: BonusFile = JSON.parse(
-    readFileSync(join(__dirname, 'bonus-list.json'), 'utf-8'),
-  );
+  // 路径兼容：dev（tsx 直接跑 prisma/seed.ts）时 JSON 与脚本同目录；
+  // 容器内跑编译产物 dist/prisma/seed.js 时 JSON 在源码 prisma/ 目录
+  const bonusCandidates = [
+    join(__dirname, 'bonus-list.json'),
+    join(__dirname, '..', '..', 'prisma', 'bonus-list.json'),
+  ];
+  const bonusPath = bonusCandidates.find((p) => existsSync(p));
+  if (!bonusPath) {
+    throw new Error(`找不到 bonus-list.json，已尝试：${bonusCandidates.join('、')}`);
+  }
+  const bonusFile: BonusFile = JSON.parse(readFileSync(bonusPath, 'utf-8'));
 
   console.log('清空旧数据…');
   await prisma.$transaction([

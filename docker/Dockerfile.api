@@ -48,11 +48,11 @@ WORKDIR /repo
 COPY --from=deps  --chown=node:node /repo/node_modules          ./node_modules
 COPY --from=deps  --chown=node:node /repo/apps/api/node_modules ./apps/api/node_modules
 COPY --from=build --chown=node:node /repo/packages/shared/dist  ./packages/shared/dist
-COPY              --chown=node:node /repo/packages/shared/package.json ./packages/shared/
+COPY             --chown=node:node packages/shared/package.json ./packages/shared/
 COPY --from=build --chown=node:node /repo/apps/api/dist         ./apps/api/dist
-COPY              --chown=node:node /repo/apps/api/prisma       ./apps/api/prisma
-COPY              --chown=node:node /repo/apps/api/package.json ./apps/api/
-COPY              --chown=node:node /repo/package.json /repo/pnpm-workspace.yaml ./
+COPY             --chown=node:node apps/api/prisma       ./apps/api/prisma
+COPY             --chown=node:node apps/api/package.json ./apps/api/
+COPY             --chown=node:node package.json pnpm-workspace.yaml ./
 USER node
 EXPOSE 3000
 WORKDIR /repo/apps/api

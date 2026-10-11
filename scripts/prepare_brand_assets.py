@@ -59,9 +59,16 @@ badge = Image.open(os.path.join(SRC, "校徽.png")).convert("RGBA")
 badge = trim(badge, 0)
 side = min(badge.size)
 badge = badge.crop((0, 0, side, side))  # 徽章近似正方形，取中心方
-for size in (32, 48, 96, 192):
+for size in (32, 48, 96, 192, 512):
     save(badge.resize((size, size), Image.LANCZOS), f"badge-{size}.png")
 save(badge.resize((180, 180), Image.LANCZOS), "apple-touch-icon.png")
+
+# PWA maskable 图标：徽章缩到 72% 居中 + 浅蓝底色（--uestc-50），
+# 保证安卓自适应遮罩（圆形/圆角方）裁切后徽章完整落在安全区内
+maskable = Image.new("RGBA", (512, 512), (238, 245, 252, 255))
+inner = badge.resize((368, 368), Image.LANCZOS)
+maskable.paste(inner, ((512 - 368) // 2, (512 - 368) // 2), inner)
+save(maskable, "badge-512-maskable.png")
 
 # ---------- 2. 校训：蓝色单色徽章（浅色背景用） ----------
 mono = Image.open(os.path.join(SRC, "校徽单色.png")).convert("RGBA")

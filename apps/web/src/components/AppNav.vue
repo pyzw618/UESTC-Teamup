@@ -99,8 +99,8 @@ async function submitFeedback() {
         <span class="font-bold text-16px color-uestc-600 hidden sm:inline">UESTC TeamUp</span>
       </router-link>
 
-      <!-- 主导航 -->
-      <nav ref="navRef" class="nav-links flex items-center gap-2px mx-auto">
+      <!-- 主导航（移动端由 BottomTab 底部导航接管，避免胶囊挤压） -->
+      <nav ref="navRef" class="nav-links hidden md:flex items-center gap-2px mx-auto">
         <span class="nav-thumb" aria-hidden="true" :style="navThumbStyle"></span>
         <router-link
           :to="{ name: 'home' }"
@@ -128,8 +128,15 @@ async function submitFeedback() {
         />
       </div>
 
-      <!-- 右侧：反馈 + 通知 + 头像胶囊（圆柱体：左侧头像 + 右侧"个人中心"） -->
-      <div class="flex items-center gap-8px shrink-0">
+      <!-- 右侧：搜索（仅移动端） + 反馈 + 通知 + 头像胶囊（圆柱体：左侧头像 + 右侧"个人中心"） -->
+      <div class="flex items-center gap-8px shrink-0 max-md:ml-auto">
+        <!-- 移动端搜索入口：导航里的搜索框在窄屏放不下，跳竞赛列表页（页顶有搜索框） -->
+        <button class="bell-btn search-btn-mobile" title="搜索竞赛" aria-label="搜索竞赛" @click="router.push({ name: 'competitions' })">
+          <svg class="bell-icon" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg" aria-hidden="true">
+            <circle cx="11" cy="11" r="6.5" stroke="currentColor" stroke-width="1.7" />
+            <path d="m16 16 4.2 4.2" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" />
+          </svg>
+        </button>
         <el-tooltip content="功能问题反馈" placement="bottom">
           <button class="bell-btn" title="功能问题反馈" @click="openFeedback">
             <svg class="bell-icon" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg" aria-hidden="true">
@@ -154,7 +161,7 @@ async function submitFeedback() {
           <el-dropdown trigger="click" @command="(c: string) => c === 'logout' ? doLogout() : router.push(c)">
             <span class="user-pill cursor-pointer flex items-center gap-8px">
               <UserAvatar :name="auth.user?.nickname || auth.user?.studentNo || 'U'" :size="28" />
-              <span class="text-13px font-semibold color-ink">个人中心</span>
+              <span class="text-13px font-semibold color-ink hidden sm:inline">个人中心</span>
             </span>
             <template #dropdown>
               <el-dropdown-menu>
@@ -176,7 +183,7 @@ async function submitFeedback() {
     </div>
 
     <!-- 功能问题反馈弹窗（Issue 5：全站入口，自动附带当前页面路径；游客可提交） -->
-    <el-dialog v-model="feedbackVisible" title="功能问题反馈" width="440px" append-to-body>
+    <el-dialog v-model="feedbackVisible" title="功能问题反馈" width="min(440px, 92vw)" append-to-body>
       <div class="flex flex-col gap-14px">
         <div class="text-13px color-ink-soft">
           当前页面：<code class="text-12px" style="background: rgba(0,0,0,0.05); padding: 2px 6px; border-radius: 6px">{{ route.fullPath }}</code>
@@ -368,6 +375,13 @@ async function submitFeedback() {
   .nav-item {
     padding: 6px 10px;
     font-size: 13px;
+  }
+}
+/* 移动端搜索图标：≥768px 隐藏（写 scoped 媒体查询而非 md:hidden——
+   .bell-btn 的 scoped display 声明会压过 UnoCSS 单类名工具类） */
+@media (min-width: 768px) {
+  .search-btn-mobile {
+    display: none;
   }
 }
 </style>

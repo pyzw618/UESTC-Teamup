@@ -4,6 +4,7 @@ import { useAuthStore } from './stores/auth';
 import { api } from './api/client';
 import AppNav from './components/AppNav.vue';
 import AppFooter from './components/AppFooter.vue';
+import BottomTab from './components/BottomTab.vue';
 import MarkdownView from './components/MarkdownView.vue';
 
 const auth = useAuthStore();
@@ -53,6 +54,7 @@ function dismissForToday() {
       </router-view>
     </main>
     <AppFooter />
+    <BottomTab />
 
     <!-- 系统公告弹窗 -->
     <el-dialog

@@ -26,6 +26,7 @@ export const router = createRouter({
     },
     { path: '/notifications', name: 'notifications', component: () => import('../views/NotificationsView.vue'), meta: { auth: true } },
     { path: '/u/:id', name: 'user-card', component: () => import('../views/UserCardView.vue') },
+    { path: '/about', name: 'about', component: () => import('../views/AboutView.vue') },
     {
       path: '/admin',
       component: () => import('../views/admin/AdminLayout.vue'),

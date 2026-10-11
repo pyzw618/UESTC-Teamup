@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { ref, onMounted, computed } from 'vue';
+import { ref, onMounted, computed, watch } from 'vue';
 import FullCalendar from '@fullcalendar/vue3';
 import dayGridPlugin from '@fullcalendar/daygrid';
 import listPlugin from '@fullcalendar/list';
@@ -11,9 +11,11 @@ import { api } from '../../api/client';
 import type { TimelineNode } from '../../api/types';
 import { useAuthStore } from '../../stores/auth';
 import { useRouter } from 'vue-router';
+import { useIsMobile } from '../../composables/useIsMobile';
 
 const auth = useAuthStore();
 const router = useRouter();
+const isMobile = useIsMobile();
 
 const allEvents = ref<TimelineNode[]>([]);
 const loading = ref(true);
@@ -38,8 +40,11 @@ function eventColor(t: TimelineNode): { bg: string; border: string } {
 
 const calendarOptions = computed<CalendarOptions>(() => ({
   plugins: [dayGridPlugin, listPlugin, interactionPlugin],
-  initialView: window.innerWidth < 768 ? 'listMonth' : 'dayGridMonth',
-  headerToolbar: { left: 'prev,next today', center: 'title', right: 'dayGridMonth,listMonth' },
+  initialView: isMobile.value ? 'listMonth' : 'dayGridMonth',
+  // 移动端收起 today 按钮、让标题居中，三段式工具栏在窄屏不挤压
+  headerToolbar: isMobile.value
+    ? { left: 'prev,next', center: 'title', right: 'dayGridMonth,listMonth' }
+    : { left: 'prev,next today', center: 'title', right: 'dayGridMonth,listMonth' },
   locale: 'zh-cn',
   height: 'auto',
   events: filteredEvents.value.map((t) => {
@@ -85,6 +90,11 @@ const dayNodes = computed(() => {
     const spanOk = s && e && s < day && e >= next;
     return startOk || endOk || spanOk;
   });
+});
+
+/** 旋转屏/调窗口跨断点时切换日历视图（initialView 只在初始化生效，切换需调 API） */
+watch(isMobile, (m) => {
+  calendarRef.value?.getApi().changeView(m ? 'listMonth' : 'dayGridMonth');
 });
 
 /** 届次年份（Issue 6）：默认当前年份，可切换历史届次 */
@@ -247,5 +257,25 @@ function goIcs() {
 }
 .fc .fc-list-event-dot {
   border-color: var(--uestc-blue);
+}
+/* ---------- 移动端：工具栏换行不挤压、控件缩一号 ---------- */
+@media (max-width: 768px) {
+  .fc {
+    font-size: 12px;
+  }
+  .fc .fc-toolbar {
+    flex-wrap: wrap;
+    row-gap: 8px;
+  }
+  .fc .fc-toolbar-title {
+    font-size: 15px;
+  }
+  .fc .fc-button {
+    padding: 4px 9px;
+    font-size: 12px;
+  }
+  .fc .fc-list-day-cushion {
+    font-size: 13px;
+  }
 }
 </style>

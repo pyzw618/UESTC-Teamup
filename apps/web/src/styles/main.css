@@ -587,9 +587,6 @@ body {
   .page-wrap {
     padding: 16px 14px calc(92px + env(safe-area-inset-bottom));
   }
-  .app-footer {
-    padding: 28px 0 calc(88px + env(safe-area-inset-bottom));
-  }
   /* 单选/多选胶囊组在窄屏允许换行，避免横向溢出 */
   .el-radio-group:has(> .el-radio-button),
   .el-checkbox-group:has(> .el-checkbox-button) {
@@ -612,4 +609,11 @@ body {
 }
 .app-footer a:hover {
   color: var(--uestc-blue);
+}
+/* 移动端页脚留白：必须放在上方 .app-footer 基础规则之后，
+   否则同优先级的基础 padding 会把它覆盖掉（页脚被 BottomTab 遮挡） */
+@media (max-width: 768px) {
+  .app-footer {
+    padding: 28px 0 calc(88px + env(safe-area-inset-bottom));
+  }
 }

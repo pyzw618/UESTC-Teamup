@@ -70,7 +70,7 @@ const { thumbStyle: tabThumbStyle } = useSlideThumb(tabsRef, () => activeKey.val
 
 <style scoped>
 @media (max-width: 768px) {
-  /* 窄屏四个标签放不下时横向滑动（seg-switch 本体不换行） */
+  /* 窄屏收紧标签内边距，让四个标签一屏放下（320px 极窄屏仍回退为横向滑动） */
   .about-tabs {
     max-width: 100%;
     overflow-x: auto;
@@ -82,6 +82,7 @@ const { thumbStyle: tabThumbStyle } = useSlideThumb(tabsRef, () => activeKey.val
   .about-tabs .seg-switch-item {
     white-space: nowrap;
     flex-shrink: 0;
+    padding: 7px 12px;
   }
 }
 </style>

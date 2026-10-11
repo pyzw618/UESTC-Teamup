@@ -69,8 +69,18 @@ const { thumbStyle: tabThumbStyle } = useSlideThumb(tabsRef, () => activeKey.val
 </template>
 
 <style scoped>
+/* 标签行撑满内容区宽度（工艺同登录页方式切换：整行等宽），右边缘与下方卡片对齐 */
+.about-tabs {
+  display: flex;
+  width: 100%;
+}
+.about-tabs .seg-switch-item {
+  flex: 1 1 0%;
+  justify-content: center;
+  white-space: nowrap;
+}
 @media (max-width: 768px) {
-  /* 窄屏收紧标签内边距，让四个标签一屏放下（320px 极窄屏仍回退为横向滑动） */
+  /* 窄屏收紧标签内边距；320px 极窄屏下整体超出时回退为横向滑动 */
   .about-tabs {
     max-width: 100%;
     overflow-x: auto;
@@ -80,7 +90,6 @@ const { thumbStyle: tabThumbStyle } = useSlideThumb(tabsRef, () => activeKey.val
     display: none;
   }
   .about-tabs .seg-switch-item {
-    white-space: nowrap;
     flex-shrink: 0;
     padding: 7px 12px;
   }

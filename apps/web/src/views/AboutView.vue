@@ -50,17 +50,8 @@ const { thumbStyle: tabThumbStyle } = useSlideThumb(tabsRef, () => activeKey.val
 <template>
   <div class="page-wrap max-w-760px mx-auto">
     <h1 class="text-26px font-extrabold m-0">关于本站</h1>
-    <p class="text-13px color-ink-soft m-0 mt-4px mb-18px">
-      成电人的竞赛罗盘 · 两名计算机学院本科生的公益项目 ·
-      <a
-        href="https://github.com/pyzw618/UESTC-Teamup"
-        target="_blank"
-        rel="noopener noreferrer"
-        class="color-uestc-500 no-underline hover:underline"
-      >GitHub ↗</a>
-    </p>
 
-    <div ref="tabsRef" class="seg-switch about-tabs mb-16px">
+    <div ref="tabsRef" class="seg-switch about-tabs mt-18px mb-16px">
       <span class="seg-switch-thumb" aria-hidden="true" :style="tabThumbStyle"></span>
       <button
         v-for="d in docs"

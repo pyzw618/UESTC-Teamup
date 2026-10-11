@@ -231,7 +231,7 @@ function backToEmail() {
       class="login-watermark pointer-events-none select-none absolute hidden md:block"
     />
 
-    <div class="glass glass-strong relative z-1 w-full max-w-420px p-36px animate-appear-zoom">
+    <div class="glass glass-strong relative z-1 w-full max-w-420px p-24px md:p-36px animate-appear-zoom">
       <div class="text-center mb-22px">
         <img src="/brand/badge-96.png" alt="电子科技大学校徽" class="w-52px h-52px rounded-full mx-auto mb-12px drop-shadow-[0_3px_10px_rgba(15,76,140,0.3)]" />
         <h1 class="text-22px font-bold m-0 color-ink">登录 UESTC TeamUp</h1>
@@ -317,7 +317,7 @@ function backToEmail() {
     </div>
 
     <!-- 忘记密码 -->
-    <el-dialog v-model="forgotVisible" title="找回密码" width="440px">
+    <el-dialog v-model="forgotVisible" title="找回密码" width="min(440px, 92vw)">
       <div class="flex flex-col gap-14px">
         <div>
           <div class="text-13px color-ink-soft mb-6px">校园邮箱</div>
@@ -352,7 +352,7 @@ function backToEmail() {
     <el-dialog
       v-model="setPwdVisible"
       title="设置登录密码"
-      width="420px"
+      width="min(420px, 92vw)"
       :close-on-click-modal="false"
     >
       <div class="flex flex-col gap-12px">

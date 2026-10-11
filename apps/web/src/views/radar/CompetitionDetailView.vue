@@ -407,7 +407,7 @@ async function submitFeedback() {
     </div>
 
     <!-- 纠错弹窗 -->
-    <el-dialog v-model="correctionVisible" title="报告错误" width="440px">
+    <el-dialog v-model="correctionVisible" title="报告错误" width="min(440px, 92vw)">
       <div class="flex flex-col gap-14px">
         <div class="text-13px color-ink-soft">
           你正在纠错：<b class="color-ink">{{ correctionFieldLabel }}</b>
@@ -426,7 +426,7 @@ async function submitFeedback() {
     </el-dialog>
 
     <!-- 竞赛信息反馈弹窗（Issue 5：自动附带竞赛名，游客可提交） -->
-    <el-dialog v-model="feedbackVisible" title="反馈竞赛信息问题" width="440px">
+    <el-dialog v-model="feedbackVisible" title="反馈竞赛信息问题" width="min(440px, 92vw)">
       <div class="flex flex-col gap-14px">
         <div class="text-13px color-ink-soft">
           反馈对象：<b class="color-ink">{{ comp?.name }}</b>

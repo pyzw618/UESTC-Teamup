@@ -416,7 +416,7 @@ async function submitEdit() {
     </div>
 
     <!-- 编辑弹窗 -->
-    <el-dialog v-model="editVisible" title="编辑招募帖" width="520px">
+    <el-dialog v-model="editVisible" title="编辑招募帖" width="min(520px, 92vw)">
       <div class="flex flex-col gap-14px">
         <div>
           <div class="text-13px font-semibold mb-6px">队伍目标</div>

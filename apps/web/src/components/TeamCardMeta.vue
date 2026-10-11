@@ -137,7 +137,7 @@ async function submitReport() {
     </div>
 
     <!-- 举报弹窗 -->
-    <el-dialog v-model="reportVisible" title="举报招募帖" width="420px" append-to-body>
+    <el-dialog v-model="reportVisible" title="举报招募帖" width="min(420px, 92vw)" append-to-body>
       <div class="flex flex-col gap-10px">
         <div class="text-13px color-ink-soft">请描述该招募帖的问题（虚假信息、垃圾广告、不当内容等）：</div>
         <el-input

@@ -136,7 +136,7 @@ void auth;
       <div>
         <div class="form-label">竞赛 <span class="req">*</span></div>
         <template v-if="!form.manualMode">
-          <div class="flex gap-8px">
+          <div class="flex flex-wrap gap-8px">
             <el-select
               v-model="form.competitionId"
               filterable
@@ -144,18 +144,18 @@ void auth;
               :remote-method="searchCompetition"
               :loading="competitionSearching"
               placeholder="输入竞赛名搜索"
-              style="flex: 1"
+              style="flex: 1 1 180px"
               size="large"
             >
               <el-option v-for="c in competitionOptions" :key="c.id" :value="c.id" :label="c.name" />
             </el-select>
-            <el-button size="large" round @click="switchToManual">手动填写</el-button>
+            <el-button size="large" round class="grow md:grow-0" @click="switchToManual">手动填写</el-button>
           </div>
         </template>
         <template v-else>
-          <div class="flex gap-8px">
-            <el-input v-model="form.competitionName" size="large" maxlength="120" placeholder="手动填写竞赛名称" />
-            <el-button size="large" round @click="switchToSelect">改用选择菜单</el-button>
+          <div class="flex flex-wrap gap-8px">
+            <el-input v-model="form.competitionName" size="large" maxlength="120" placeholder="手动填写竞赛名称" style="flex: 1 1 180px" />
+            <el-button size="large" round class="grow md:grow-0" @click="switchToSelect">改用选择菜单</el-button>
           </div>
         </template>
       </div>

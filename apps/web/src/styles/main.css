@@ -552,6 +552,11 @@ body {
   border-radius: 18px;
   border: 1px solid rgba(232, 232, 232, 0.9);
 }
+/* 移动端兜底：任何固定 px 宽度的弹窗/确认框在窄屏都不允许溢出视口 */
+.el-dialog,
+.el-message-box {
+  max-width: 92vw;
+}
 .el-card {
   --el-card-border-radius: 18px;
   border: 1px solid rgba(232, 232, 232, 0.9);
@@ -578,8 +583,18 @@ body {
   padding: 24px 20px 64px;
 }
 @media (max-width: 768px) {
+  /* 底部留白避开 BottomTab 悬浮胶囊 + iPhone 安全区 */
   .page-wrap {
-    padding: 16px 14px 80px;
+    padding: 16px 14px calc(92px + env(safe-area-inset-bottom));
+  }
+  .app-footer {
+    padding: 28px 0 calc(88px + env(safe-area-inset-bottom));
+  }
+  /* 单选/多选胶囊组在窄屏允许换行，避免横向溢出 */
+  .el-radio-group:has(> .el-radio-button),
+  .el-checkbox-group:has(> .el-checkbox-button) {
+    flex-wrap: wrap;
+    border-radius: 22px;
   }
 }
 

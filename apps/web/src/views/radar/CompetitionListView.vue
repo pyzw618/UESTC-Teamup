@@ -2,11 +2,13 @@
 import { ref, reactive, onMounted, onBeforeUnmount, watch, computed } from 'vue';
 import { useRoute, useRouter } from 'vue-router';
 import { ElMessage } from 'element-plus';
-import { AudienceLabel, CompetitionFormatLabel, Audience, CompetitionFormat, Level, LevelLabel } from '@teamup/shared';
+import { Level, LevelLabel } from '@teamup/shared';
 import { api, qs } from '../../api/client';
 import { fmtDate, daysLeft, type CompetitionListItem } from '../../api/types';
 import LevelChips from '../../components/LevelChips.vue';
+import CompetitionFilterPanel from '../../components/CompetitionFilterPanel.vue';
 import { useSlideThumb } from '../../composables/useSlideThumb';
+import { useIsMobile } from '../../composables/useIsMobile';
 
 const route = useRoute();
 const router = useRouter();
@@ -187,6 +189,12 @@ function deadlineText(c: CompetitionListItem) {
 const activeFilterCount = computed(
   () => filters.levels.length + (filters.audience ? 1 : 0) + (filters.format ? 1 : 0) + (filters.bonusOnly ? 1 : 0) + (filters.status ? 1 : 0),
 );
+
+// ---------- 移动端适配（ROADMAP P1-1.18） ----------
+// <768px：筛选侧栏改为底部抽屉、表格视图强制回卡片（el-table 窄屏横向溢出）
+const isMobile = useIsMobile();
+const filterDrawer = ref(false);
+const effectiveView = computed<'card' | 'table'>(() => (isMobile.value ? 'card' : view.value));
 </script>
 
 <template>
@@ -215,53 +223,18 @@ const activeFilterCount = computed(
     </div>
 
     <div class="grid grid-cols-1 lg:grid-cols-[260px_1fr] gap-18px items-start">
-      <!-- 筛选侧栏 -->
-      <aside class="glass p-18px lg:sticky lg:top-90px">
+      <!-- 筛选侧栏（桌面/平板；移动端改为下方底部抽屉） -->
+      <aside class="glass p-18px lg:sticky lg:top-90px max-md:hidden">
         <div class="flex items-center justify-between mb-10px">
           <span class="font-semibold text-14px">筛选</span>
           <el-badge v-if="activeFilterCount" :value="activeFilterCount" type="primary" />
         </div>
-        <div class="flex flex-col gap-14px">
-          <div>
-            <div class="filter-label">级别</div>
-            <el-checkbox-group v-model="filters.levels" class="flex flex-col gap-4px">
-              <el-checkbox v-for="l in levelOptions" :key="l.value" :value="l.value" :label="l.label" />
-            </el-checkbox-group>
-          </div>
-          <div>
-            <div class="filter-label">面向年级</div>
-            <el-select v-model="filters.audience" placeholder="全部" clearable size="default" style="width: 100%">
-              <el-option :value="Audience.UNDERGRAD" :label="AudienceLabel[Audience.UNDERGRAD]" />
-              <el-option :value="Audience.POSTGRAD" :label="AudienceLabel[Audience.POSTGRAD]" />
-              <el-option :value="Audience.MIXED" :label="AudienceLabel[Audience.MIXED]" />
-            </el-select>
-          </div>
-          <div>
-            <div class="filter-label">赛制</div>
-            <el-select v-model="filters.format" placeholder="全部" clearable size="default" style="width: 100%">
-              <el-option :value="CompetitionFormat.INDIVIDUAL" :label="CompetitionFormatLabel[CompetitionFormat.INDIVIDUAL]" />
-              <el-option :value="CompetitionFormat.TEAM" :label="CompetitionFormatLabel[CompetitionFormat.TEAM]" />
-            </el-select>
-          </div>
-          <div>
-            <div class="filter-label">状态</div>
-            <el-select v-model="filters.status" placeholder="全部" clearable size="default" style="width: 100%">
-              <el-option value="OPEN" label="报名中" />
-              <el-option value="UPCOMING" label="即将开始" />
-              <el-option value="ENDED" label="已结束" />
-            </el-select>
-          </div>
-          <div>
-            <div class="filter-label">届次年份</div>
-            <el-select v-model="filters.year" placeholder="全部" size="default" style="width: 100%">
-              <el-option v-for="y in yearOptions" :key="y" :value="y" :label="`${y} 届${y === currentYear ? '（今年）' : ''}`" />
-            </el-select>
-          </div>
-          <el-divider class="!my-4px" />
-          <el-checkbox v-model="filters.bonusOnly" class="bonus-check">
-            <span class="font-semibold" style="color: #8a5800">🎓 保研加分竞赛</span>
-          </el-checkbox>
-        </div>
+        <CompetitionFilterPanel
+          :filters="filters"
+          :level-options="levelOptions"
+          :year-options="yearOptions"
+          :current-year="currentYear"
+        />
       </aside>
 
       <!-- 列表 -->
@@ -271,11 +244,15 @@ const activeFilterCount = computed(
             v-model="searchInput"
             placeholder="搜索竞赛名称或别名…"
             clearable
-            style="max-width: 300px"
+            class="w-full md:w-auto md:flex-1 md:max-w-300px"
           >
             <template #prefix><el-icon><i-ep-search /></el-icon></template>
           </el-input>
-          <div class="flex items-center gap-6px ml-auto">
+          <!-- 移动端筛选入口：底部抽屉承载桌面侧栏的同款筛选面板 -->
+          <el-button class="filter-btn-mobile" round @click="filterDrawer = true">
+            筛选<span v-if="activeFilterCount" class="ml-4px font-bold color-uestc-600">{{ activeFilterCount }}</span>
+          </el-button>
+          <div class="flex items-center gap-6px md:ml-auto">
             <span class="text-13px color-ink-soft">排序</span>
             <el-select v-model="filters.sort" style="width: 140px">
               <el-option value="LATEST" label="最新收录" />
@@ -287,7 +264,7 @@ const activeFilterCount = computed(
         </div>
 
         <!-- 卡片视图 -->
-        <div v-if="view === 'card'" v-loading="loading" class="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-3 gap-14px min-h-300px">
+        <div v-if="effectiveView === 'card'" v-loading="loading" class="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-3 gap-14px min-h-300px">
           <router-link
             v-for="(c, i) in items"
             :key="c.id"
@@ -346,26 +323,52 @@ const activeFilterCount = computed(
           </div>
         </div>
 
-        <div v-if="view === 'card'" class="flex justify-center mt-18px">
+        <div v-if="effectiveView === 'card'" class="flex justify-center mt-18px">
           <el-pagination v-model:current-page="page" :total="total" :page-size="pageSize" layout="prev, pager, next" />
         </div>
       </div>
     </div>
+
+    <!-- 移动端筛选抽屉（与桌面侧栏共用同一份 filters） -->
+    <el-drawer v-model="filterDrawer" direction="btt" size="min(560px, 86%)" class="filter-drawer" title="筛选">
+      <CompetitionFilterPanel
+        :filters="filters"
+        :level-options="levelOptions"
+        :year-options="yearOptions"
+        :current-year="currentYear"
+      />
+      <template #footer>
+        <el-button type="primary" round class="w-full" @click="filterDrawer = false">
+          查看 {{ total }} 个结果
+        </el-button>
+      </template>
+    </el-drawer>
   </div>
 </template>
 
 <style scoped>
-.filter-label {
-  font-size: 12px;
-  color: var(--ink-faint);
-  margin-bottom: 4px;
+@media (max-width: 768px) {
+  /* 移动端强制卡片视图：切换器隐藏，el-table 窄屏横向溢出不再暴露 */
+  .seg-switch {
+    display: none;
+  }
 }
-.bonus-check :deep(.el-checkbox__inner) {
-  border-color: rgba(217, 159, 0, 0.6);
+/* 移动端筛选入口按钮：≥768px 隐藏（scoped 媒体查询优先级高于 el-button 基础样式） */
+@media (min-width: 768px) {
+  .filter-btn-mobile {
+    display: none;
+  }
 }
 @media (max-width: 1024px) {
   aside {
     position: static !important;
   }
+}
+</style>
+
+<style>
+/* 底部抽屉圆角（drawer 挂载在组件树内，需全局样式） */
+.filter-drawer .el-drawer {
+  border-radius: 18px 18px 0 0;
 }
 </style>

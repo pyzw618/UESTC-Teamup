@@ -8,6 +8,8 @@ import { TeamsService } from '../modules/match/teams.service';
 
 /** 容器默认时区是 UTC：cron 必须显式指定，否则「早上 8:05」实际会在北京时间 16:05 触发 */
 const TZ = 'Asia/Shanghai';
+const DAY_MS = 86400_000;
+const SHANGHAI_OFFSET_MS = 8 * 3600_000;
 
 /** cron worker：DDL 提醒 + 队伍状态归档（TECH_STACK §5 内置 cron） */
 @Injectable()
@@ -36,10 +38,15 @@ export class JobsService {
 
     try {
       const now = new Date();
+      // 北京时间（UTC+8）自然日零点对应的绝对时刻，不使用服务器本地日期方法。
+      const todayStart = new Date(
+        Math.floor((now.getTime() + SHANGHAI_OFFSET_MS) / DAY_MS) * DAY_MS - SHANGHAI_OFFSET_MS,
+      );
+      const tomorrowStart = new Date(todayStart.getTime() + DAY_MS);
       const windows = [7, 3, 1].map((d) => ({
         d,
-        from: new Date(now.getTime() + d * 86400_000 - 3600_000),
-        to: new Date(now.getTime() + d * 86400_000 + 3600_000),
+        from: new Date(todayStart.getTime() + d * DAY_MS),
+        to: new Date(todayStart.getTime() + (d + 1) * DAY_MS),
       }));
 
       // 1) 一次取回三个窗口内的「报名截止」节点（仅已发布竞赛）
@@ -47,7 +54,7 @@ export class JobsService {
         where: {
           nodeType: 'SIGNUP_END',
           competition: { status: 'PUBLISHED' },
-          OR: windows.map((w) => ({ endAt: { gte: w.from, lte: w.to } })),
+          OR: windows.map((w) => ({ endAt: { gte: w.from, lt: w.to } })),
         },
         include: {
           stage: { select: { name: true } },
@@ -82,7 +89,7 @@ export class JobsService {
         where: {
           userId: { in: targetUserIds },
           kind: 'DDL_REMINDER',
-          createdAt: { gte: new Date(now.getFullYear(), now.getMonth(), now.getDate()) },
+          createdAt: { gte: todayStart, lt: tomorrowStart },
         },
         select: { userId: true, payload: true },
       });
@@ -96,7 +103,7 @@ export class JobsService {
       const rows: Prisma.NotificationCreateManyInput[] = [];
       for (const tl of timelines) {
         if (!tl.endAt) continue;
-        const daysLeft = windows.find((w) => tl.endAt! >= w.from && tl.endAt! <= w.to)?.d;
+        const daysLeft = windows.find((w) => tl.endAt! >= w.from && tl.endAt! < w.to)?.d;
         if (daysLeft == null) continue;
         for (const userId of favUsersByComp.get(tl.competitionId) ?? []) {
           const key = `${userId}:${tl.id}`;

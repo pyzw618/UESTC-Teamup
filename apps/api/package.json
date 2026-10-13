@@ -9,7 +9,7 @@
     "prisma:generate": "prisma generate",
     "prisma:migrate": "prisma migrate dev",
     "seed": "tsx prisma/seed.ts",
-    "test": "node --import tsx --test --test-concurrency=1 test/teams.spec.ts test/auth.spec.ts test/mail.spec.ts test/audit-fixes.spec.ts",
+    "test": "node --import tsx --test --test-concurrency=1 test/teams.spec.ts test/auth.spec.ts test/mail.spec.ts test/audit-fixes.spec.ts test/jobs.spec.ts",
     "postinstall": "prisma generate"
   },
   "prisma": {

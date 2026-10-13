@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { ref, reactive, onMounted, onBeforeUnmount, watch, computed } from 'vue';
-import { useRoute, useRouter } from 'vue-router';
+import { useRoute, useRouter, type LocationQuery } from 'vue-router';
 import { ElMessage } from 'element-plus';
 import { Level, LevelLabel } from '@teamup/shared';
 import { api, qs } from '../../api/client';
@@ -25,26 +25,36 @@ function readQueryString(raw: unknown): string {
   return Array.isArray(raw) ? String(raw[0] ?? '') : String(raw ?? '');
 }
 
-const filters = reactive({
-  q: readQueryString(route.query.q),
-  levels: parseLevels(route.query.levels),
-  audience: '',
-  format: '',
-  /** 竞赛类别（校教〔2026〕39号口径）：学科竞赛 / 文体竞赛 */
-  category: readQueryString(route.query.category),
-  bonusOnly: false,
-  status: '',
-  /** 默认按认定文件顺序（学科竞赛在前、文体竞赛在后），与 PDF 清单一致 */
-  sort: 'CATALOG',
-  /** 届次年份（Issue 6）：默认当前年份，可切换历史届次 */
-  year: new Date().getFullYear() as number | null,
-});
-const page = ref(1);
+function readPage(raw: unknown): number {
+  const value = Number(readQueryString(raw));
+  return Number.isSafeInteger(value) && value > 0 ? value : 1;
+}
+
+function readFilters(query: LocationQuery) {
+  const year = Number(readQueryString(query.year));
+  return {
+    q: readQueryString(query.q),
+    levels: parseLevels(query.levels),
+    audience: readQueryString(query.audience),
+    format: readQueryString(query.format),
+    /** 竞赛类别（校教〔2026〕39号口径）：学科竞赛 / 文体竞赛 */
+    category: readQueryString(query.category),
+    bonusOnly: readQueryString(query.bonusOnly) === 'true',
+    status: readQueryString(query.status),
+    /** 默认按认定文件顺序（学科竞赛在前、文体竞赛在后），与 PDF 清单一致 */
+    sort: readQueryString(query.sort) || 'CATALOG',
+    /** 届次年份（Issue 6）：默认当前年份，可切换历史届次 */
+    year: Number.isInteger(year) && year >= 2000 && year <= 2100 ? year : new Date().getFullYear(),
+  };
+}
+
+const filters = reactive(readFilters(route.query));
+const page = ref(readPage(route.query.page));
 const pageSize = 12;
 const total = ref(0);
 const items = ref<CompetitionListItem[]>([]);
 const loading = ref(false);
-const view = ref<'card' | 'table'>('card');
+const view = ref<'card' | 'table'>(readQueryString(route.query.view) === 'table' ? 'table' : 'card');
 const viewSwitchRef = ref<HTMLElement | null>(null);
 const { thumbStyle: viewThumbStyle } = useSlideThumb(viewSwitchRef, () => view.value, '.seg-switch-item.active');
 
@@ -99,6 +109,8 @@ let searchTimer: ReturnType<typeof setTimeout> | null = null;
 
 watch(searchInput, (v) => {
   if (searchTimer) clearTimeout(searchTimer);
+  searchTimer = null;
+  if (v === filters.q) return;
   searchTimer = setTimeout(() => {
     searchTimer = null;
     if (filters.q !== v) filters.q = v; // → filters watcher 触发 load
@@ -110,53 +122,78 @@ onBeforeUnmount(() => {
 });
 
 /**
- * H9c：单一数据流 route.query → filters → watch → load。
- * 写操作（下拉、复选框、排序、搜索框、分页）只改 filters/page，统一由下面两个
- * watcher 触发 load；已去掉 `@change="load"` 与路由 watcher 里手动 load() 的重复触发源。
+ * 将列表状态写入 URL，详情返回或刷新后仍能恢复原页。
+ * 回填路由时暂停同步 watcher，避免恢复筛选触发「回到第一页」或重复请求。
  */
+let restoringQuery = false;
 watch(
   filters,
   () => {
+    if (restoringQuery || route.name !== 'competitions') return;
     if (page.value !== 1) {
       // 改筛选条件回到第一页；page watcher 会负责这次加载
       page.value = 1;
-      syncUrl();
       return;
     }
     syncUrl();
     load();
   },
-  { deep: true },
+  { deep: true, flush: 'sync' },
 );
-watch(page, () => load());
+watch(page, () => {
+  if (restoringQuery || route.name !== 'competitions') return;
+  syncUrl();
+  load();
+}, { flush: 'sync' });
+watch(view, () => {
+  if (!restoringQuery && route.name === 'competitions') syncUrl();
+}, { flush: 'sync' });
 
 function syncUrl() {
-  router.replace({ query: { ...route.query, q: filters.q || undefined, levels: filters.levels.join(',') || undefined, category: filters.category || undefined, bonusOnly: filters.bonusOnly ? 'true' : undefined } });
+  router.replace({ name: 'competitions', query: {
+    ...route.query,
+    q: filters.q || undefined,
+    levels: filters.levels.join(',') || undefined,
+    audience: filters.audience || undefined,
+    format: filters.format || undefined,
+    category: filters.category || undefined,
+    bonusOnly: filters.bonusOnly ? 'true' : undefined,
+    status: filters.status || undefined,
+    sort: filters.sort === 'CATALOG' ? undefined : filters.sort,
+    year: filters.year === currentYear ? undefined : String(filters.year),
+    page: page.value === 1 ? undefined : String(page.value),
+    view: view.value === 'card' ? undefined : view.value,
+  } });
 }
 
 /**
  * 外部路由变化（浏览器前进/后退、站内跳转带 query）回填到 filters；
- * 回填本身会触发 filters watcher → load，这里不再手动加载。
+ * 仅处理列表路由，离开页面时不把详情页的 query 回填为列表默认状态。
  */
 watch(
   () => route.query,
   (nq) => {
-    const q = readQueryString(nq.q);
-    if (q !== searchInput.value) searchInput.value = q;
-    if (q !== filters.q) {
-      // 外部导航应即时生效，取消可能还在挂起的防抖
-      if (searchTimer) {
-        clearTimeout(searchTimer);
-        searchTimer = null;
-      }
-      filters.q = q;
+    if (route.name !== 'competitions') return;
+    const nextFilters = readFilters(nq);
+    const nextPage = readPage(nq.page);
+    const nextView = readQueryString(nq.view) === 'table' ? 'table' : 'card';
+    const dataChanged = JSON.stringify(nextFilters) !== JSON.stringify(filters) || nextPage !== page.value;
+    if (!dataChanged && nextView === view.value) return;
+
+    if (searchTimer) {
+      clearTimeout(searchTimer);
+      searchTimer = null;
     }
-    const lv = parseLevels(nq.levels);
-    if (lv.join(',') !== filters.levels.join(',')) filters.levels = lv;
-    const cat = readQueryString(nq.category);
-    if (cat !== filters.category) filters.category = cat;
-    const bonus = nq.bonusOnly === 'true';
-    if (bonus !== filters.bonusOnly) filters.bonusOnly = bonus;
+    restoringQuery = true;
+    try {
+      Object.assign(filters, nextFilters);
+      page.value = nextPage;
+      view.value = nextView;
+      searchInput.value = nextFilters.q;
+    } finally {
+      restoringQuery = false;
+    }
+    if (dataChanged) load();
   },
 );
 

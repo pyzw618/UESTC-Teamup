@@ -1,4 +1,4 @@
-import { Body, Controller, Delete, Get, Param, Post, Put, Query } from '@nestjs/common';
+import { Body, Controller, Delete, Get, Param, Patch, Post, Put, Query } from '@nestjs/common';
 import { Type } from 'class-transformer';
 import {
   IsArray,
@@ -331,6 +331,12 @@ export class AdminController {
   @Post('announcements')
   createAnnouncement(@CurrentUser() admin: import('@prisma/client').User, @Body() dto: AnnouncementDto) {
     return this.announcementsSvc.create(admin.id, dto);
+  }
+
+  /** 编辑公告内容（展示中的公告也可改，改完同步消息中心里已投递的那条通知） */
+  @Patch('announcements/:id')
+  updateAnnouncement(@Param('id') id: string, @Body() dto: AnnouncementDto) {
+    return this.announcementsSvc.update(id, dto);
   }
 
   @Post('announcements/:id/toggle')

@@ -48,6 +48,31 @@ export class AnnouncementsService {
     return this.prisma.announcement.update({ where: { id }, data: { active: !ann.active } });
   }
 
+  /**
+   * 编辑公告（展示中的也能改）。
+   * 发布时正文已随消息中心的通知一起投递，只改公告表会让「站内横幅」与「消息中心历史」
+   * 说两套话，所以同事务把仍指向本条公告的通知 payload 一并改掉。
+   */
+  async update(id: string, dto: { title: string; content: string }) {
+    const ann = await this.prisma.announcement.findUnique({ where: { id }, select: { id: true } });
+    if (!ann) throw new NotFoundException('公告不存在');
+
+    return this.prisma.$transaction(async (tx) => {
+      const updated = await tx.announcement.update({
+        where: { id },
+        data: { title: dto.title, content: dto.content },
+      });
+      // payload 是部署在 Postgres 的 jsonb，用 || 合并而不是整条覆盖：
+      // announcementId 是投递锚点，丢了就再也关联不上后续编辑
+      await tx.$executeRaw`
+        UPDATE "Notification"
+        SET payload = payload || jsonb_build_object('title', ${dto.title}::text, 'content', ${dto.content}::text)
+        WHERE payload ->> 'announcementId' = ${id}
+      `;
+      return updated;
+    });
+  }
+
   async remove(id: string) {
     const ann = await this.prisma.announcement.findUnique({ where: { id }, select: { id: true } });
     if (!ann) throw new NotFoundException('公告不存在');

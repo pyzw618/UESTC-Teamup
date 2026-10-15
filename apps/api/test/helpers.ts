@@ -72,6 +72,8 @@ const TRUNCATE_TABLES = [
   'Competition',
   'BonusStandard',
   'User',
+  // 无外键，但同属公告链路：公告表不被清空时「当前生效公告」会跨用例残留
+  'Announcement',
 ];
 
 export async function resetDb(prisma: PrismaService) {

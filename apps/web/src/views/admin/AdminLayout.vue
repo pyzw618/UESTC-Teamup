@@ -1,9 +1,10 @@
 <script setup lang="ts">
 import { computed } from 'vue';
-import { useRoute } from 'vue-router';
+import { useRoute, useRouter } from 'vue-router';
 import { useAuthStore } from '../../stores/auth';
 
 const route = useRoute();
+const router = useRouter();
 const auth = useAuthStore();
 
 interface Tab { path: string; label: string; adminOnly?: boolean }
@@ -21,6 +22,15 @@ const tabs: Tab[] = [
 /** Issue 2：CONTRIBUTOR 只有竞赛编辑权限，后台仅展示「竞赛管理」标签 */
 const visibleTabs = computed(() => tabs.filter((t) => !t.adminOnly || auth.isAdmin));
 const isAdmin = computed(() => auth.isAdmin);
+
+/**
+ * 标签切换统一走 tab-change 而不是只依赖标签里的 router-link：
+ * el-tabs 的点击热区是整个标签项（含左右内边距），而 router-link 只裹住文字，
+ * 点内边距时蓝条会跟着动、页面却不动（标签与内容不一致）。
+ */
+function goTab(name: unknown) {
+  if (typeof name === 'string' && name !== route.path) router.push(name);
+}
 </script>
 
 <template>
@@ -38,7 +48,7 @@ const isAdmin = computed(() => auth.isAdmin);
       </div>
     </div>
 
-    <el-tabs :model-value="route.path" class="admin-tabs">
+    <el-tabs :model-value="route.path" class="admin-tabs" @tab-change="goTab">
       <el-tab-pane v-for="t in visibleTabs" :key="t.path" :name="t.path">
         <template #label>
           <router-link :to="t.path" class="no-underline">{{ t.label }}</router-link>
@@ -57,5 +67,15 @@ const isAdmin = computed(() => auth.isAdmin);
 }
 .admin-tabs a {
   color: var(--ink-soft);
+}
+/* 窄屏（手机后台）标签总宽超过一屏时，Element Plus 默认 overflow:hidden 会直接裁掉
+   右侧标签（它自己的左右箭头依赖内部探测，这里实测不出现），后两个标签等于点不到。
+   放开横向滚动即可左右滑动查看；隐藏滚动条保持胶囊视觉。 */
+.admin-tabs :deep(.el-tabs__nav-scroll) {
+  overflow-x: auto;
+  scrollbar-width: none;
+}
+.admin-tabs :deep(.el-tabs__nav-scroll)::-webkit-scrollbar {
+  display: none;
 }
 </style>

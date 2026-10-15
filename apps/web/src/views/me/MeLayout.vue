@@ -1,9 +1,10 @@
 <script setup lang="ts">
-import { useRoute } from 'vue-router';
+import { useRoute, useRouter } from 'vue-router';
 import { useAuthStore } from '../../stores/auth';
 import UserAvatar from '../../components/UserAvatar.vue';
 
 const route = useRoute();
+const router = useRouter();
 const auth = useAuthStore();
 
 const tabs = [
@@ -11,6 +12,15 @@ const tabs = [
   { path: '/me/teams', label: '我的招募帖' },
   { path: '/me/favorites', label: '我的关注' },
 ];
+
+/**
+ * 标签切换统一走 tab-change 而不是只依赖标签里的 router-link：
+ * el-tabs 的点击热区是整个标签项（含左右内边距），而 router-link 只裹住文字，
+ * 点内边距时蓝条会跟着动、页面却不动（标签与内容不一致）。
+ */
+function goTab(name: unknown) {
+  if (typeof name === 'string' && name !== route.path) router.push(name);
+}
 </script>
 
 <template>
@@ -30,7 +40,7 @@ const tabs = [
       <el-tag v-if="!auth.user?.nickname" type="warning" effect="plain" round>资料待补全</el-tag>
     </section>
 
-    <el-tabs :model-value="route.path" class="me-tabs">
+    <el-tabs :model-value="route.path" class="me-tabs" @tab-change="goTab">
       <el-tab-pane
         v-for="t in tabs"
         :key="t.path"
@@ -56,5 +66,13 @@ const tabs = [
 }
 .me-tabs a {
   color: var(--ink-soft);
+}
+/* 同后台：标签放不下时允许横向滑动，避免 Element Plus 直接裁掉右侧标签 */
+.me-tabs :deep(.el-tabs__nav-scroll) {
+  overflow-x: auto;
+  scrollbar-width: none;
+}
+.me-tabs :deep(.el-tabs__nav-scroll)::-webkit-scrollbar {
+  display: none;
 }
 </style>

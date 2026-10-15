@@ -581,6 +581,10 @@ body {
   max-width: 1200px;
   margin: 0 auto;
   padding: 24px 20px 64px;
+  /* 页面级横向兜底：hero 银杏装饰（right:-30px）这类「故意出血」的元素会把 body
+     撑出横向滚动条，手机上整页可以左右拖动、右侧留白。用 clip 而不是 hidden ——
+     clip 不创建滚动容器，日历侧栏的 position:sticky 不会被破坏。 */
+  overflow-x: clip;
 }
 @media (max-width: 768px) {
   /* 底部留白避开 BottomTab 悬浮胶囊 + iPhone 安全区 */

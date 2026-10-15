@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { ref, onMounted, computed, watch } from 'vue';
+import { ref, onMounted, computed } from 'vue';
 import FullCalendar from '@fullcalendar/vue3';
 import dayGridPlugin from '@fullcalendar/daygrid';
 import listPlugin from '@fullcalendar/list';
@@ -11,10 +11,8 @@ import { api } from '../../api/client';
 import { dayjs, type TimelineNode } from '../../api/types';
 import { useRouter } from 'vue-router';
 import { useSlideThumb } from '../../composables/useSlideThumb';
-import { useIsMobile } from '../../composables/useIsMobile';
 
 const router = useRouter();
-const isMobile = useIsMobile();
 
 const allEvents = ref<TimelineNode[]>([]);
 const loading = ref(true);
@@ -44,7 +42,9 @@ const LEVEL_ORDER: Level[] = [Level.INTERNATIONAL, Level.NATIONAL, Level.PROVINC
 const levelOptions = LEVEL_ORDER.map((l) => ({ value: l, label: LevelLabel[l] }));
 
 /* ---------------- 视图模式（月 / 列表） ---------------- */
-const viewMode = ref<'dayGridMonth' | 'listMonth'>(isMobile.value ? 'listMonth' : 'dayGridMonth');
+// 手机端也默认「月」：日历页的第一眼诉求是「这个月有什么」，网格一眼看全；
+// 单日节点挤不下时用列表视图，由工具栏切换（切换后跨断点也保留用户的选择）
+const viewMode = ref<'dayGridMonth' | 'listMonth'>('dayGridMonth');
 const viewSwitchRef = ref<HTMLElement | null>(null);
 const { thumbStyle: viewThumbStyle } = useSlideThumb(viewSwitchRef, () => viewMode.value, '.seg-switch-item.active');
 const viewTitle = ref('');
@@ -52,7 +52,7 @@ const viewTitle = ref('');
 /* ---------------- 日历配置 ---------------- */
 const calendarOptions = computed<CalendarOptions>(() => ({
   plugins: [dayGridPlugin, listPlugin, interactionPlugin],
-  initialView: isMobile.value ? 'listMonth' : 'dayGridMonth',
+  initialView: 'dayGridMonth',
   // 工具栏完全自绘：默认的 fc-button 与站内玻璃按钮工艺对不齐，是「按键风格不统一」的来源
   headerToolbar: false,
   locale: 'zh-cn',
@@ -62,17 +62,22 @@ const calendarOptions = computed<CalendarOptions>(() => ({
   eventDisplay: 'block',
   // 跨天节点的列表视图时间列会显示 allDay 文案，zh-cn 语言包未覆盖该文案，这里补齐
   allDayText: '全天',
-  // 不做 dayMaxEvents 折叠：一天里的每个节点都完整展开成一行（信息优先，不藏进「还有 N 项」）
+  // 不做 dayMaxEvents 折叠：一天里的每个节点都完整展开成一行（信息优先，不藏进「还有 N 项」），
+  // 手机端同样保留这个口径，格子密一点也要能一眼看全，需要逐条看时切「列表」视图。
   // 月视图事件标题只保留「竞赛名 · 阶段」：FullCalendar 默认还会在标题前拼时间（「0时」），
   // 竞赛节点以日期为主，时间放悬停提示里更清爽。列表视图的时间列由 FC 单独渲染，不受影响。
   // 自定义内容必须自带 clipping：否则长标题会溢出自己那条、压在相邻节点文字上。
+  // 但列表视图（每条独占一行）里标题必须允许换行：设成 nowrap 会让表格的 min-content
+  // 宽度跟着最长标题走（实测 460px），窄屏整页横向溢出。
   eventContent: (arg) => {
     const el = document.createElement('span');
     el.textContent = arg.event.title;
     el.style.display = 'block';
-    el.style.overflow = 'hidden';
-    el.style.textOverflow = 'ellipsis';
-    el.style.whiteSpace = 'nowrap';
+    if (arg.view.type !== 'listMonth') {
+      el.style.overflow = 'hidden';
+      el.style.textOverflow = 'ellipsis';
+      el.style.whiteSpace = 'nowrap';
+    }
     return { domNodes: [el] };
   },
   events: filteredEvents.value.flatMap((t) => {
@@ -183,13 +188,6 @@ function setView(v: 'dayGridMonth' | 'listMonth') {
   viewMode.value = v;
   calendarRef.value?.getApi().changeView(v);
 }
-
-/** 旋转屏/调窗口跨断点时切换日历视图（initialView 只在初始化生效，切换需调 API） */
-watch(isMobile, (m) => {
-  const v = m ? 'listMonth' : 'dayGridMonth';
-  viewMode.value = v;
-  calendarRef.value?.getApi().changeView(v);
-});
 
 /* ---------------- 届次年份 ---------------- */
 const currentYear = new Date().getFullYear();
@@ -412,6 +410,25 @@ function goIcs() {
   }
   .fc .fc-list-day-cushion {
     font-size: 13px;
+  }
+  /* 月视图每格只有 ~45px 宽：压缩留白，让标题多留几个字的位置 */
+  .fc .fc-daygrid-day-frame {
+    min-height: 0;
+  }
+  .fc .fc-daygrid-day-top {
+    padding: 0 1px;
+  }
+  .fc .fc-daygrid-day-number {
+    font-size: 11px;
+    padding: 1px 3px;
+  }
+  .fc .fc-daygrid-day-events {
+    margin: 1px 1px 0;
+  }
+  .fc .fc-daygrid-event {
+    padding: 0 3px;
+    font-size: 11px;
+    min-height: 15px;
   }
 }
 </style>

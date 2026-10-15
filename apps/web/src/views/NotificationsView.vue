@@ -4,6 +4,7 @@ import { useRouter } from 'vue-router';
 import { ElMessage } from 'element-plus';
 import { api } from '../api/client';
 import { fmtDate, type NotificationItem } from '../api/types';
+import MarkdownView from '../components/MarkdownView.vue';
 
 const router = useRouter();
 
@@ -90,6 +91,7 @@ const payloadText = (n: NotificationItem): { title: string; desc: string; link?:
         link: p.teamId ? `/teams/${p.teamId}` : undefined,
       };
     case 'SYSTEM_NOTIFICATION':
+      // 公告正文是 Markdown（发布时原样入库），这里只取标题，正文交给 MarkdownView 渲染
       return { title: `📢 ${String(p.title ?? n.kindLabel)}`, desc: String(p.content ?? '') };
     default:
       return { title: n.kindLabel, desc: '' };
@@ -123,11 +125,13 @@ const shown = computed(() => items.value);
         :style="n.readAt ? '' : 'border-left: 3px solid var(--ginkgo-gold)'"
         @click="read(n); payloadText(n).link && router.push(payloadText(n).link!)"
       >
-        <div class="flex-1">
+        <div class="flex-1 min-w-0">
           <div class="text-14px font-semibold" :style="{ color: n.readAt ? 'var(--ink-soft)' : 'var(--ink)' }">
             {{ payloadText(n).title }}
           </div>
-          <div class="text-13px color-ink-soft mt-2px">{{ payloadText(n).desc }}</div>
+          <!-- 系统公告正文按 Markdown 渲染（与全站公告弹窗同一套样式），其余通知仍是一行纯文本 -->
+          <MarkdownView v-if="n.kind === 'SYSTEM_NOTIFICATION'" class="mt-4px" :source="payloadText(n).desc" />
+          <div v-else class="text-13px color-ink-soft mt-2px">{{ payloadText(n).desc }}</div>
         </div>
         <div class="text-12px color-ink-faint text-right shrink-0">
           <div>{{ fmtDate(n.createdAt, true) }}</div>

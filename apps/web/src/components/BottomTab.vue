@@ -12,6 +12,8 @@ interface Tab {
   label: string;
   /** 命中这些路径前缀时高亮 */
   match: string[];
+  /** 精确匹配整条路径（「首页」专用：'/' 是所有路径的前缀，前缀匹配会让首页恒亮） */
+  exact?: boolean;
   /** 「我的」：未登录去登录页，已登录去个人中心 */
   target: () => string;
 }
@@ -19,18 +21,23 @@ interface Tab {
 const tabs: Tab[] = [
   { key: 'competitions', label: '竞赛', match: ['/competitions'], target: () => '/competitions' },
   { key: 'calendar', label: '日历', match: ['/calendar'], target: () => '/calendar' },
+  // 首页放在导航正中：任何二级页面都能一键回到首页
+  { key: 'home', label: '首页', match: ['/'], exact: true, target: () => '/' },
   { key: 'teams', label: '组队', match: ['/teams'], target: () => '/teams' },
   { key: 'me', label: '我的', match: ['/me', '/login'], target: () => (auth.isLoggedIn ? '/me/profile' : '/login') },
 ];
 
 const activeKey = computed(() => {
-  for (const t of tabs) if (t.match.some((m) => route.path.startsWith(m))) return t.key;
+  for (const t of tabs) {
+    if (t.exact ? t.match.includes(route.path) : t.match.some((m) => route.path.startsWith(m))) return t.key;
+  }
   return '';
 });
 </script>
 
 <template>
-  <!-- 移动端专属底部导航（ROADMAP P2-2.13：竞赛｜日历｜组队｜我的），桌面端由 AppNav 胶囊接管 -->
+  <!-- 移动端专属底部导航（ROADMAP P2-2.13：竞赛｜日历｜首页｜组队｜我的），桌面端由 AppNav 胶囊接管 -->
+  <!-- 窄屏（≤340px）标签与图标同步缩一号，避免 5 个入口挤在一起 -->
   <nav class="bottom-tab-wrap" aria-label="移动端主导航">
     <div class="bottom-tab">
       <button
@@ -51,6 +58,11 @@ const activeKey = computed(() => {
           <svg v-else-if="t.key === 'calendar'" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
             <rect x="3.5" y="5" width="17" height="15.5" rx="2.5" stroke="currentColor" stroke-width="1.7" />
             <path d="M3.5 9.5h17M8 3v4M16 3v4" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" />
+          </svg>
+          <!-- 首页 -->
+          <svg v-else-if="t.key === 'home'" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
+            <path d="M4 10.6 12 4.4l8 6.2" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" />
+            <path d="M6.2 9.8v8.6a1 1 0 0 0 1 1h9.6a1 1 0 0 0 1-1V9.8" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" />
           </svg>
           <!-- 组队 -->
           <svg v-else-if="t.key === 'teams'" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
@@ -136,6 +148,19 @@ const activeKey = computed(() => {
 @media (min-width: 768px) {
   .bottom-tab-wrap {
     display: none;
+  }
+}
+@media (max-width: 340px) {
+  .bottom-tab {
+    gap: 2px;
+    padding: 4px;
+  }
+  .tab-icon svg {
+    width: 19px;
+    height: 19px;
+  }
+  .tab-label {
+    font-size: 10px;
   }
 }
 </style>

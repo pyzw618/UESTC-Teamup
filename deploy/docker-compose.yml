@@ -82,7 +82,9 @@ services:
     depends_on:
       - api
     ports:
-      - "80:80"
+      # 生产公网入口在 lcz（Azure）的 nginx :443，经 frp 隧道接入本端口
+      # （见 docs/DEPLOY_INGRESS.md）。只绑环回：公网无法绕过 lcz 直连本机。
+      - "127.0.0.1:18080:80"
     volumes:
       - ./nginx.conf:/etc/nginx/conf.d/default.conf:ro
     # 静态资源 + 反代

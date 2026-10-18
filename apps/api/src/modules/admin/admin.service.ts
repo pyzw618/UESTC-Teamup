@@ -10,6 +10,7 @@ import {
   PublishStatus,
   RevisionOrigin,
   StageKind,
+  TeamStatus,
 } from '@prisma/client';
 import { PrismaService } from '../../common/prisma.service';
 import { NotificationService } from '../notification/notification.service';
@@ -685,6 +686,73 @@ export class AdminService {
       this.prisma.team.delete({ where: { id } }),
     ]);
     return { deleted: true, name: team.competition.name };
+  }
+
+  /**
+   * 招募帖管理（管理员）：只做归档 / 恢复，不提供内容编辑。
+   * 搜索支持竞赛名、队长昵称、学号；状态筛选按 TeamStatus。
+   */
+  async adminTeamsList(query: { page: number; pageSize: number; q?: string; status?: string }) {
+    const where: Prisma.TeamWhereInput = {};
+    if (query.q) {
+      where.OR = [
+        { competition: { name: { contains: query.q, mode: 'insensitive' } } },
+        { leader: { nickname: { contains: query.q, mode: 'insensitive' } } },
+        { leader: { studentNo: { contains: query.q, mode: 'insensitive' } } },
+      ];
+    }
+    if (query.status && (Object.values(TeamStatus) as string[]).includes(query.status)) {
+      where.status = query.status as TeamStatus;
+    }
+
+    const [rows, total] = await this.prisma.$transaction([
+      this.prisma.team.findMany({
+        where,
+        orderBy: { createdAt: 'desc' },
+        skip: (query.page - 1) * query.pageSize,
+        take: query.pageSize,
+        select: {
+          id: true,
+          goal: true,
+          status: true,
+          deadline: true,
+          createdAt: true,
+          competition: { select: { id: true, name: true, year: true } },
+          leader: { select: { id: true, nickname: true, studentNo: true, college: true } },
+          _count: { select: { members: true, intents: true } },
+        },
+      }),
+      this.prisma.team.count({ where }),
+    ]);
+
+    return {
+      items: rows.map((t) => ({
+        id: t.id,
+        goal: t.goal,
+        status: t.status,
+        deadline: t.deadline,
+        createdAt: t.createdAt,
+        competition: t.competition,
+        leader: t.leader,
+        memberCount: 1 + t._count.members,
+        intentCount: t._count.intents,
+      })),
+      total,
+      page: query.page,
+      pageSize: query.pageSize,
+    };
+  }
+
+  /** 管理员归档 / 恢复招募帖：归档即进入公共列表之外的归档仓库，恢复为招募中 */
+  async setTeamArchived(id: string, archived: boolean) {
+    const team = await this.prisma.team.findUnique({ where: { id }, select: { id: true, status: true } });
+    if (!team) throw new NotFoundException('招募帖不存在');
+
+    const next = archived ? TeamStatus.DISBANDED : TeamStatus.RECRUITING;
+    if (team.status !== next) {
+      await this.prisma.team.update({ where: { id }, data: { status: next } });
+    }
+    return { id, archived, status: next };
   }
 
   async adminList(query: { page: number; pageSize: number; q?: string; status?: string }) {

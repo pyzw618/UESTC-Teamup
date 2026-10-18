@@ -36,6 +36,7 @@ export const router = createRouter({
         { path: 'competitions', name: 'admin-competitions', component: () => import('../views/admin/AdminCompetitionsView.vue') },
         { path: 'competitions/new', name: 'admin-competition-new', component: () => import('../views/admin/AdminCompetitionEdit.vue') },
         { path: 'competitions/:id/edit', name: 'admin-competition-edit', component: () => import('../views/admin/AdminCompetitionEdit.vue') },
+        { path: 'teams', name: 'admin-teams', component: () => import('../views/admin/AdminTeamsView.vue') },
         { path: 'corrections', name: 'admin-corrections', component: () => import('../views/admin/AdminCorrectionsView.vue') },
         { path: 'revisions', name: 'admin-revisions', component: () => import('../views/admin/AdminRevisionsView.vue') },
         { path: 'reports', name: 'admin-reports', component: () => import('../views/admin/AdminReportsView.vue') },

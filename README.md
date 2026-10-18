@@ -52,7 +52,7 @@
 
 **队友匹配**
 
-- 组队卡「广告牌模式」，队伍状态机四态：招募中 / 已满员 / 已参赛 / 已解散（公开发现流只展示「招募中」且招募截止未过的帖子，其余状态仅发布者与管理员可见）
+- 组队卡「广告牌模式」，队伍状态四态：招募中 / 已满员 / 历史已参赛 / 已归档（公开发现流展示所有未归档帖子；只有发帖人或管理员主动归档才下架，系统不再按竞赛时间自动失效）
 - **组队意愿**：联系方式默认遮挡，点击「我想组队」登记一条意愿后解锁；帖子展示「有 X 人有组队意愿」（只给计数不公开身份，可撤销）；招募人收到聚合站内消息
 - **个人信息可见性（2026-09-27 定稿）**：平台不做申请 / 邀请 / 审批 / 私聊，招募帖即广告牌。**学号仅对登录用户展示**（查看招募帖发布者与公开名片时可见），游客不下发——公开互联网不可批量抓取学号；联系方式仅队长 / 管理员 / 已登记意愿的用户可见
 - 匿名访问矩阵：竞赛信息与招募计数对游客公开（帖子详情游客仅见外层壳与意愿计数）；招募正文 / 发现列表 / 帖子详情正文 / 学号需校园账号登录；公开名片可访客浏览，子资源 401 不影响整页
@@ -88,7 +88,7 @@ flowchart LR
 - 单体 + 模块化边界，**不做微服务**（2C2G 单机预算）
 - API 全局前缀 `/api`，统一响应包装（`TransformInterceptor`）+ 全局异常过滤（`HttpExceptionFilter`）
 - Cookie httpOnly 会话，CORS 白名单由 `WEB_ORIGIN` 控制
-- cron 任务：DDL 提醒（7/3/1 天）+ 队伍状态归档（`apps/api/src/jobs/`）
+- cron 任务：DDL 提醒（7/3/1 天）（`apps/api/src/jobs/`）
 
 ## 仓库结构
 
@@ -98,7 +98,7 @@ flowchart LR
 │  ├─ api/                # NestJS 10 + Prisma 5（:3000，全局前缀 /api）
 │  │  ├─ src/common/      # 认证守卫 · Prisma/Redis · 拦截器 · 过滤器
 │  │  ├─ src/modules/     # auth · users · mail · notification · radar · match · admin · crawler · feedback
-│  │  ├─ src/jobs/        # DDL 提醒 + 队伍归档 cron
+│  │  ├─ src/jobs/        # DDL 提醒 cron
 │  │  └─ prisma/          # schema · migrations · seed · extract_bonus.py · bonus-list.json
 │  └─ web/                # Vue 3 + Vite（dev :5173，/api 代理到 :3000）
 ├─ packages/shared/       # 前后端共享枚举 / 类型

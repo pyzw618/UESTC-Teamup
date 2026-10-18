@@ -86,8 +86,9 @@ enum BonusTier {
   NONE
 }
 
-/// 招募帖状态：RECRUITING / FULL / DISBANDED 队长手动切换，
-/// COMPETING 由系统根据竞赛赛程自动设置（比赛开始后不再自动回退）。
+/// 招募帖状态：RECRUITING / FULL / DISBANDED 由队长手动切换。
+/// DISBANDED 即「归档」，也是公共列表唯一下架的途径；COMPETING 为历史遗留值，
+/// 系统不再按竞赛时间自动写入。
 enum TeamStatus {
   RECRUITING
   FULL

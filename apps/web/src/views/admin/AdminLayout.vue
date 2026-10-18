@@ -11,6 +11,7 @@ interface Tab { path: string; label: string; adminOnly?: boolean }
 
 const tabs: Tab[] = [
   { path: '/admin/competitions', label: '竞赛管理' },
+  { path: '/admin/teams', label: '招募帖管理', adminOnly: true },
   { path: '/admin/reports', label: '举报处理', adminOnly: true },
   { path: '/admin/users', label: '用户管理', adminOnly: true },
   { path: '/admin/announcements', label: '系统公告', adminOnly: true },

@@ -190,8 +190,7 @@ export class CommentsService {
 
   /**
    * 目标可见性（Issue 13）：评论接口必须与目标详情接口同口径。
-   * - 队伍：非 RECRUITING（FULL/COMPETING/DISBANDED）仅队长与管理员可见，
-   *   其他人按「不存在」处理（与 teams.detail 的 Issue 4 规则一致）；
+   * - 队伍：已归档（DISBANDED）仅队长与管理员可见，其他人按「不存在」处理；
    * - 竞赛：ARCHIVED 一律不可见，DRAFT 仅管理员可预览（与竞赛详情 Issue 11 一致）；
    * - 删除或不存在的目标：统一 404。
    */
@@ -209,7 +208,7 @@ export class CommentsService {
         select: { leaderId: true, status: true },
       });
       if (!team) throw new NotFoundException('招募帖不存在');
-      if (team.status !== 'RECRUITING' && team.leaderId !== viewerId && viewerRole !== 'ADMIN') {
+      if (team.status === 'DISBANDED' && team.leaderId !== viewerId && viewerRole !== 'ADMIN') {
         throw new NotFoundException('招募帖不存在');
       }
     } else if (targetType === CommentTarget.POST) {

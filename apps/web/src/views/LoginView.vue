@@ -15,11 +15,13 @@ const modeSwitchRef = ref<HTMLElement | null>(null);
 const { thumbStyle: modeThumbStyle } = useSlideThumb(modeSwitchRef, () => mode.value, '.seg-switch-item.active');
 
 /* ---------- 验证码登录（两步） ---------- */
-const email = ref('');
+/** 只填学号，校园邮箱后缀固定拼接 */
+const studentNo = ref('');
+const email = computed(() => `${studentNo.value.trim()}@std.uestc.edu.cn`);
 const code = ref('');
 const sending = ref(false);
 const cooldown = ref(0);
-const emailValid = computed(() => /^\d{8,16}@std\.uestc\.edu\.cn$/.test(email.value.trim()));
+const studentNoValid = computed(() => /^\d{8,16}$/.test(studentNo.value.trim()));
 
 let timer: ReturnType<typeof setInterval> | null = null;
 function startCooldown() {
@@ -46,13 +48,13 @@ onUnmounted(() => {
 });
 
 async function sendCode() {
-  if (!emailValid.value) {
-    ElMessage.warning('请输入成电校园邮箱（学号@std.uestc.edu.cn）');
+  if (!studentNoValid.value) {
+    ElMessage.warning('请输入 8-16 位学号');
     return;
   }
   sending.value = true;
   try {
-    const res = await api.post<{ message?: string }>('/auth/send-code', { email: email.value.trim() });
+    const res = await api.post<{ message?: string }>('/auth/send-code', { email: email.value });
     step.value = 2;
     startCooldown();
     ElMessage.success(res.message || '验证码已发送');
@@ -68,8 +70,8 @@ const password = ref('');
 const passwordLogging = ref(false);
 
 async function loginWithPassword() {
-  if (!emailValid.value) {
-    ElMessage.warning('请输入成电校园邮箱（学号@std.uestc.edu.cn）');
+  if (!studentNoValid.value) {
+    ElMessage.warning('请输入 8-16 位学号');
     return;
   }
   if (!password.value) {
@@ -78,7 +80,7 @@ async function loginWithPassword() {
   }
   passwordLogging.value = true;
   try {
-    await api.post('/auth/login-password', { email: email.value.trim(), password: password.value });
+    await api.post('/auth/login-password', { email: email.value, password: password.value });
     await afterLogin();
   } catch (e) {
     ElMessage.error(e instanceof ApiError ? e.message : '登录失败');
@@ -89,7 +91,8 @@ async function loginWithPassword() {
 
 /* ---------- 忘记密码 ---------- */
 const forgotVisible = ref(false);
-const fpEmail = ref('');
+const fpStudentNo = ref('');
+const fpEmail = computed(() => `${fpStudentNo.value.trim()}@std.uestc.edu.cn`);
 const fpCode = ref('');
 const fpNewPassword = ref('');
 const fpSending = ref(false);
@@ -98,13 +101,13 @@ const fpCooldown = ref(0);
 const fpDevCode = ref('');
 
 async function sendForgotCode() {
-  if (!/^\d{8,16}@std\.uestc\.edu\.cn$/.test(fpEmail.value.trim())) {
-    ElMessage.warning('请输入成电校园邮箱');
+  if (!/^\d{8,16}$/.test(fpStudentNo.value.trim())) {
+    ElMessage.warning('请输入 8-16 位学号');
     return;
   }
   fpSending.value = true;
   try {
-    const res = await api.post<{ message?: string }>('/auth/forgot-password', { email: fpEmail.value.trim() });
+    const res = await api.post<{ message?: string }>('/auth/forgot-password', { email: fpEmail.value });
     // M17：dev 环境后端在信封顶层回显 dev.devCode（生产为 undefined），仅用于本地联调
     fpDevCode.value = String(lastDevPayload()?.devCode ?? '');
     startFpCooldown();
@@ -132,7 +135,7 @@ async function submitReset() {
   fpSubmitting.value = true;
   try {
     await api.post('/auth/reset-password', {
-      email: fpEmail.value.trim(),
+      email: fpEmail.value,
       code: fpCode.value.trim(),
       newPassword: fpNewPassword.value,
     });
@@ -205,7 +208,7 @@ async function loginWithCode() {
   }
   loggingIn.value = true;
   try {
-    await api.post('/auth/login', { email: email.value.trim(), code: code.value.trim() });
+    await api.post('/auth/login', { email: email.value, code: code.value.trim() });
     code.value = '';
     await afterLogin();
   } catch (e) {
@@ -246,17 +249,24 @@ function backToEmail() {
         <button class="seg-switch-item flex-1 justify-center" :class="{ active: mode === 'password' }" @click="mode = 'password'">密码登录</button>
       </div>
 
-      <!-- 验证码登录：第一步邮箱 -->
+      <!-- 验证码登录：第一步学号 -->
       <div v-if="mode === 'code' && step === 1" class="flex flex-col gap-16px">
         <div>
-          <div class="text-13px color-ink-soft mb-6px">校园邮箱</div>
+          <div class="text-13px color-ink-soft mb-6px">学号</div>
           <el-input
-            v-model="email"
+            v-model="studentNo"
             size="large"
-            placeholder="学号@std.uestc.edu.cn"
+            maxlength="16"
+            inputmode="numeric"
+            placeholder="请输入学号"
             @keyup.enter="sendCode"
-          />
-          <div class="text-12px color-ink-faint mt-6px">仅支持 @std.uestc.edu.cn 后缀，登录即注册</div>
+          >
+            <template #append>@std.uestc.edu.cn</template>
+          </el-input>
+          <div class="text-12px color-ink-faint mt-6px leading-relaxed">
+            <div>校园邮箱登录链接：<a href="http://mail.std.uestc.edu.cn/" target="_blank" rel="noopener noreferrer" class="color-uestc-500">http://mail.std.uestc.edu.cn/</a></div>
+            <div>推荐使用企业微信查看校园邮箱</div>
+          </div>
         </div>
         <el-button type="primary" size="large" round :loading="sending" @click="sendCode">
           {{ sending ? '发送中…' : '获取验证码' }}
@@ -268,7 +278,7 @@ function backToEmail() {
         <div>
           <div class="text-13px color-ink-soft mb-6px">
             验证码已发送至 <b class="color-ink">{{ email }}</b>
-            <a class="ml-6px cursor-pointer color-uestc-500" @click="backToEmail">更换邮箱</a>
+            <a class="ml-6px cursor-pointer color-uestc-500" @click="backToEmail">修改学号</a>
           </div>
           <el-input
             v-model="code"
@@ -292,8 +302,14 @@ function backToEmail() {
       <!-- 密码登录 -->
       <div v-else class="flex flex-col gap-16px">
         <div>
-          <div class="text-13px color-ink-soft mb-6px">校园邮箱</div>
-          <el-input v-model="email" size="large" placeholder="学号@std.uestc.edu.cn" />
+          <div class="text-13px color-ink-soft mb-6px">学号</div>
+          <el-input v-model="studentNo" size="large" maxlength="16" inputmode="numeric" placeholder="请输入学号">
+            <template #append>@std.uestc.edu.cn</template>
+          </el-input>
+          <div class="text-12px color-ink-faint mt-6px leading-relaxed">
+            <div>校园邮箱登录链接：<a href="http://mail.std.uestc.edu.cn/" target="_blank" rel="noopener noreferrer" class="color-uestc-500">http://mail.std.uestc.edu.cn/</a></div>
+            <div>推荐使用企业微信查看校园邮箱</div>
+          </div>
         </div>
         <div>
           <div class="flex items-center justify-between mb-6px">
@@ -320,9 +336,11 @@ function backToEmail() {
     <el-dialog v-model="forgotVisible" title="找回密码" width="min(440px, 92vw)">
       <div class="flex flex-col gap-14px">
         <div>
-          <div class="text-13px color-ink-soft mb-6px">校园邮箱</div>
+          <div class="text-13px color-ink-soft mb-6px">学号</div>
           <div class="flex gap-8px">
-            <el-input v-model="fpEmail" placeholder="学号@std.uestc.edu.cn" />
+            <el-input v-model="fpStudentNo" maxlength="16" inputmode="numeric" placeholder="请输入学号">
+              <template #append>@std.uestc.edu.cn</template>
+            </el-input>
             <el-button :loading="fpSending" :disabled="fpCooldown > 0" @click="sendForgotCode">
               {{ fpCooldown > 0 ? `${fpCooldown}s` : '发送验证码' }}
             </el-button>

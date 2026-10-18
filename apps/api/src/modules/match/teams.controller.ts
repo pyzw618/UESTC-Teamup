@@ -44,7 +44,7 @@ class ListTeamsDto {
   @IsOptional() @IsString() competitionId?: string;
   @IsOptional() @TransformStringArray() roles?: RoleType[];
   @IsOptional() @IsEnum(TeamGoal) goal?: TeamGoal;
-  // 可见性收敛（Issue 4）：公开列表固定只返回 RECRUITING，不再接受 statuses 参数
+  // 可见性只按「是否归档」判断：不再接受 statuses 参数，也不再按竞赛/截止时间过滤
   @IsOptional() @IsIn(['DEADLINE', 'LATEST']) sort?: 'DEADLINE' | 'LATEST';
   @IsOptional() @IsDateString() postedFrom?: string;
   @IsOptional() @IsDateString() postedTo?: string;
@@ -60,7 +60,7 @@ class SetStatusDto {
 export class TeamsController {
   constructor(private readonly teams: TeamsService) {}
 
-  /** 发现列表（登录可见，A3 匿名边界）：固定只返回「招募中」（Issue 4） */
+  /** 发现列表（登录可见，A3 匿名边界）：展示所有未归档的帖子 */
   @Get()
   list(@Query() query: ListTeamsDto) {
     return this.teams.list({
@@ -83,7 +83,7 @@ export class TeamsController {
 
   /**
    * 详情公开（游客可看帖子壳与组队意愿计数；联系方式 / 招募正文按登录与意愿状态在服务端裁剪）。
-   * 非「招募中」帖子仅发布者与管理员可访问，其他人得到 404（Issue 4）。
+   * 已归档帖子仅发布者与管理员可访问，其他人得到 404。
    */
   @Public()
   @Get(':id')
@@ -96,7 +96,7 @@ export class TeamsController {
     return this.teams.update(user.id, id, this.toInput(dto));
   }
 
-  /** 队长手动切换状态：RECRUITING / FULL / DISBANDED（COMPETING 由系统自动设置） */
+  /** 队长手动切换状态：RECRUITING / FULL / DISBANDED（DISBANDED 即归档） */
   @Post(':id/status')
   setStatus(@CurrentUser() user: User, @Param('id') id: string, @Body() dto: SetStatusDto) {
     return this.teams.setStatus(user.id, id, dto.status as ManualTeamStatus);

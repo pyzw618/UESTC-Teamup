@@ -23,12 +23,12 @@ export interface UpsertTeamInput {
   members?: { grade?: number | null; college?: string | null; major?: string | null; rank?: string | null; intro?: string | null }[];
 }
 
-/** 队长可手动切换的状态；COMPETING 由系统根据比赛时间设置，不在其中 */
+/** 队长可手动切换的状态；COMPETING 为历史遗留状态，不再由系统写入 */
 export type ManualTeamStatus = 'RECRUITING' | 'FULL' | 'DISBANDED';
 
 const MAX_ROLES = 10;
 
-/** 队长可手动切换的状态；COMPETING 由系统根据比赛时间设置，不在其中 */
+/** 队长可手动切换的状态；COMPETING 为历史遗留状态，不再由系统写入 */
 const MANUAL_STATUSES: TeamStatus[] = [TeamStatus.RECRUITING, TeamStatus.FULL, TeamStatus.DISBANDED];
 
 /**
@@ -56,7 +56,7 @@ function memberCount(rows: number): number {
   return 1 + rows;
 }
 
-/** 帖子的招募截止已过（B3）：公开发现流不再展示，避免「招募中」列表出现僵尸帖 */
+/** 帖子的招募截止已过（B3）：仅作展示提示，不再影响可见性与组队意愿 */
 function deadlinePassed(deadline: Date | null, now: Date): boolean {
   return deadline != null && deadline < now;
 }
@@ -84,10 +84,9 @@ export class TeamsService {
   // ==================================================================
 
   /**
-   * 公开发现列表（2026-09-27 可见性收敛 Issue 4）：
-   * 只返回「招募中」的帖子 —— FULL / COMPETING / DISBANDED 一律不出现，
-   * 前端也不再提供勾选展示其他状态的入口。
-   * 招募截止已过的 RECRUITING 帖同样不出现在默认流（B3：陈旧帖子破坏可信度）。
+   * 公开发现列表：展示所有未归档的帖子（RECRUITING / FULL，以及历史遗留的 COMPETING）。
+   * 只有「归档」（DISBANDED，队长主动归档或管理员归档）才从公共列表消失；
+   * 竞赛时间、招募截止时间都不再自动让帖子失效。
    */
   async list(q: {
     competitionId?: string;
@@ -103,9 +102,8 @@ export class TeamsService {
     const now = new Date();
 
     const where: Prisma.TeamWhereInput = {
-      status: TeamStatus.RECRUITING,
+      status: { not: TeamStatus.DISBANDED },
       competition: { status: 'PUBLISHED' },
-      OR: [{ deadline: null }, { deadline: { gte: now } }],
       ...(q.competitionId ? { competitionId: q.competitionId } : {}),
       ...(q.goal ? { goal: q.goal } : {}),
       // 招募方向：帖子的 neededRoles 标签命中即可
@@ -174,8 +172,8 @@ export class TeamsService {
    * 帖子详情。游客可访问（公开壳：状态/方向/人数/意愿计数），但「招募正文」分层：
    * - 联系方式：仅队长 / 管理员 / 已登记组队意愿的用户可见（Issue 1）
    * - requirement 与成员名单：登录用户可见（A3：招募正文不向互联网公开）
-   * - 非 RECRUITING 帖子（FULL/COMPETING/DISBANDED）：仅发布者本人与管理员可访问，
-   *   其他人按「不存在」处理（Issue 4，不暴露帖子存在性）
+   * - 已归档帖子（DISBANDED）：仅发布者本人与管理员可访问，
+   *   其他人按「不存在」处理（不暴露帖子存在性）
    */
   async detail(id: string, viewerId?: string, viewerRole?: string) {
     const team = await this.prisma.team.findUnique({
@@ -192,9 +190,9 @@ export class TeamsService {
     const isLeader = viewerId != null && team.leaderId === viewerId;
     const isAdmin = viewerRole === 'ADMIN';
 
-    // Issue 4：非招募中帖子的直链访问收敛到发布者与管理员
-    if (team.status !== TeamStatus.RECRUITING && !isLeader && !isAdmin) {
-      throw new NotFoundException('招募帖不存在');
+    // 只有归档帖子收敛到发布者与管理员；已满员 / 历史 COMPETING 帖子仍可正常浏览
+    if (team.status === TeamStatus.DISBANDED && !isLeader && !isAdmin) {
+      throw new NotFoundException('招募帖已归档');
     }
 
     let hasIntent = false;
@@ -257,15 +255,12 @@ export class TeamsService {
    * 同时给招募人发一条聚合站内消息：同一帖子未读消息只更新计数，不刷屏。
    */
   async registerIntent(teamId: string, userId: string) {
-    const now = new Date();
     const team = await this.prisma.team.findUnique({
       where: { id: teamId },
-      select: { id: true, leaderId: true, status: true, deadline: true, competition: { select: { name: true } } },
+      select: { id: true, leaderId: true, status: true, competition: { select: { name: true } } },
     });
     if (!team) throw new NotFoundException('招募帖不存在');
     if (team.status !== TeamStatus.RECRUITING) throw new BadRequestException('该帖子当前不在招募中');
-    // Issue 17：招募截止已过的帖子不再接受新的组队意愿（与公开列表的下架口径一致）
-    if (team.deadline && team.deadline < now) throw new BadRequestException('该帖子招募已截止');
     if (team.leaderId === userId) throw new BadRequestException('不能对自己的帖子登记组队意愿');
 
     try {
@@ -389,7 +384,7 @@ export class TeamsService {
 
   async update(actorId: string, teamId: string, input: UpsertTeamInput) {
     const team = await this.mustOwn(actorId, teamId);
-    if (team.status === TeamStatus.DISBANDED) throw new BadRequestException('帖子已解散归档，不能编辑');
+    if (team.status === TeamStatus.DISBANDED) throw new BadRequestException('帖子已归档，不能编辑');
 
     // 联系方式：任一字段提交即整体校验（与存量合并后仍需至少一项）
     let contacts: { qq: string | null; wechat: string | null } | undefined;
@@ -429,73 +424,29 @@ export class TeamsService {
   // ==================================================================
 
   /**
-   * 队长手动切换状态：RECRUITING / FULL / DISBANDED。
-   * COMPETING 由系统按竞赛时间线自动设置；DISBANDED 是终态（帖子进入归档仓库）。
+   * 队长手动切换状态：RECRUITING / FULL / DISBANDED（DISBANDED 即归档，帖子进入归档仓库）。
+   * 系统不再根据竞赛时间自动改状态；归档是唯一的下架方式。
    */
   async setStatus(actorId: string, teamId: string, status: TeamStatus) {
     if (!MANUAL_STATUSES.includes(status)) {
-      throw new BadRequestException('参赛状态由系统根据比赛时间自动设置，无需手动操作');
+      throw new BadRequestException('帖子状态只能由发帖人手动切换');
     }
     const team = await this.mustOwn(actorId, teamId);
     if (team.status === status) return team;
     if (team.status === TeamStatus.DISBANDED) {
-      throw new BadRequestException('帖子已解散归档，不能变更状态');
+      throw new BadRequestException('帖子已归档，不能变更状态');
     }
     if (team.status === TeamStatus.COMPETING && status === TeamStatus.FULL) {
-      throw new BadRequestException('参赛中的帖子不能改为已满员，可直接解散');
+      throw new BadRequestException('参赛中的帖子不能改为已满员，可直接归档');
     }
     return this.prisma.team.update({ where: { id: teamId }, data: { status } });
-  }
-
-  // ==================================================================
-  // cron 自动流转
-  // ==================================================================
-
-  /**
-   * 按竞赛时间线自动把帖子置为 COMPETING：
-   * 招募中/已满员的帖子，其所属竞赛的第一个非报名节点（比赛类）已开始 → COMPETING。
-   * 比赛前已解散的帖子（DISBANDED）不在扫描范围内，无需处理。
-   */
-  async autoCompete() {
-    const now = new Date();
-    const teams = await this.prisma.team.findMany({
-      where: { status: { in: [TeamStatus.RECRUITING, TeamStatus.FULL] } },
-      select: { id: true, competitionId: true },
-    });
-    if (!teams.length) return { updated: 0 };
-
-    const compIds = [...new Set(teams.map((t) => t.competitionId))];
-    const raceStarts = new Map<string, Date>();
-    const events = await this.prisma.competitionEvent.findMany({
-      where: {
-        competitionId: { in: compIds },
-        nodeType: 'CONTEST',
-        startAt: { lte: now },
-      },
-      orderBy: { startAt: 'asc' },
-      select: { competitionId: true, startAt: true },
-    });
-    for (const ev of events) {
-      if (!raceStarts.has(ev.competitionId) && ev.startAt) raceStarts.set(ev.competitionId, ev.startAt);
-    }
-
-    const toCompete = teams.filter((t) => raceStarts.has(t.competitionId)).map((t) => t.id);
-    if (!toCompete.length) return { updated: 0 };
-
-    // Issue 16：更新条件复核当前状态 —— 筛选与写入之间队长可能已解散帖子，
-    // 带状态条件的原子更新保证 DISBANDED 不会被定时任务改回 COMPETING
-    const res = await this.prisma.team.updateMany({
-      where: { id: { in: toCompete }, status: { in: [TeamStatus.RECRUITING, TeamStatus.FULL] } },
-      data: { status: TeamStatus.COMPETING },
-    });
-    return { updated: res.count };
   }
 
   // ==================================================================
   // 「我的」视图
   // ==================================================================
 
-  /** 我的招募帖：全部状态可见可管理（含已解散的归档仓库） */
+  /** 我的招募帖：全部状态可见可管理（含已归档的归档仓库） */
   async myTeams(userId: string) {
     const rows = await this.prisma.team.findMany({
       where: { leaderId: userId },

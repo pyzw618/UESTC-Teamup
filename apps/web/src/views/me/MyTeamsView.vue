@@ -10,7 +10,7 @@ const router = useRouter();
 const teams = ref<TeamListItem[]>([]);
 const loading = ref(true);
 
-/** 归档仓库：已解散的帖子 */
+/** 归档仓库：已归档的帖子 */
 const archived = computed(() => teams.value.filter((t) => t.status === 'DISBANDED'));
 const active = computed(() => teams.value.filter((t) => t.status !== 'DISBANDED'));
 
@@ -58,10 +58,10 @@ onMounted(async () => {
       <el-empty v-if="!loading && !teams.length" description="还没有发布过招募帖" class="col-span-full" />
     </div>
 
-    <!-- 归档仓库（已解散） -->
+    <!-- 归档仓库（已归档） -->
     <template v-if="archived.length">
       <el-divider class="!my-20px">
-        <span class="text-13px color-ink-faint">🗄 归档仓库（已解散）</span>
+        <span class="text-13px color-ink-faint">🗄 归档仓库（已归档）</span>
       </el-divider>
       <div class="grid grid-cols-1 md:grid-cols-2 gap-14px opacity-75">
         <div

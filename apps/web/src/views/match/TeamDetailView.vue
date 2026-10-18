@@ -116,8 +116,8 @@ async function revokeIntent() {
 // ---------- 队长操作：状态切换 / 编辑 ----------
 
 const STATUS_CONFIRM: Record<string, { tip: string; type: 'warning' | 'info' }> = {
-  FULL: { tip: '标记为「已满员」后帖子不再出现在公共发现列表，仅你与管理员可见。', type: 'info' },
-  DISBANDED: { tip: '解散后帖子进入你的「归档仓库」，公共列表不再展示，且不可恢复。', type: 'warning' },
+  FULL: { tip: '标记为「已满员」后帖子仍会展示在公共列表，只是提示不再收人；需要下架请使用归档。', type: 'info' },
+  DISBANDED: { tip: '归档后帖子进入你的「归档仓库」，公共列表不再展示，且你无法自行恢复。', type: 'warning' },
   RECRUITING: { tip: '重新开启招募，帖子恢复为「招募中」。', type: 'info' },
 };
 
@@ -141,7 +141,7 @@ async function changeStatus(status: TeamStatus) {
   }
 }
 
-/** 队长可用的状态操作（COMPETING 由系统自动设置，不提供按钮） */
+/** 队长可用的状态操作（COMPETING 为历史遗留状态，仅保留归档入口） */
 const statusActions = computed(() => {
   switch (team.value?.status) {
     case 'RECRUITING': return [TeamStatus.FULL, TeamStatus.DISBANDED];
@@ -152,7 +152,7 @@ const statusActions = computed(() => {
 });
 
 const statusActionLabel = (s: TeamStatus) =>
-  s === TeamStatus.DISBANDED ? '解散帖子' : TeamStatusLabel[s];
+  s === TeamStatus.DISBANDED ? '归档帖子' : TeamStatusLabel[s];
 
 // 编辑弹窗
 const editVisible = ref(false);
@@ -305,7 +305,7 @@ async function submitEdit() {
             <span
               v-else-if="isAdminViewer"
               class="text-12px color-ink-faint self-center"
-              title="管理操作请前往后台举报/内容管理台"
+              title="管理操作请前往后台「招募帖管理」"
             >管理员视角（只读）</span>
             <!-- Issue 1：组队意愿入口（游客点击 → 引导登录） -->
             <template v-else-if="team.status === 'RECRUITING'">

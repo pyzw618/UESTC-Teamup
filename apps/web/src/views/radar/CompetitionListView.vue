@@ -336,7 +336,7 @@ const effectiveView = computed<'card' | 'table'>(() => (isMobile.value ? 'card' 
                 ⏳ {{ deadlineText(c) }}
               </span>
               <span class="text-12px color-ink-faint">
-                {{ c.recruitingTeams > 0 ? `👥 ${c.recruitingTeams} 支队伍招募中` : '' }}
+                {{ c.recruitingTeams > 0 ? `👥 ${c.recruitingTeams} 条组队帖` : '' }}
               </span>
             </div>
           </router-link>

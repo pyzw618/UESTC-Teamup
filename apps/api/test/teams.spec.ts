@@ -61,25 +61,32 @@ test('create：同竞赛可重复发帖（2026-09-27 产品迭代去限流）', 
   assert.ok(second.id, '去限流后同竞赛再次发帖应成功');
 });
 
-test('list：默认只展示招募中，DISBANDED 永不出现在公共列表', async () => {
+test('list：展示所有未归档帖子（含已满员、已过截止），仅归档帖子不出现', async () => {
   const prisma = getPrisma();
   const { teams } = makeService(prisma);
   const leader = await makeUser(prisma);
   const comp = await makeCompetition(prisma, '列表测试赛');
 
   const recruiting = await makeTeamPost(prisma, { competitionId: comp.id, leaderId: leader.id });
-  await makeTeamPost(prisma, { competitionId: comp.id, leaderId: leader.id, status: TeamStatus.FULL });
+  const full = await makeTeamPost(prisma, { competitionId: comp.id, leaderId: leader.id, status: TeamStatus.FULL });
+  const expired = await makeTeamPost(prisma, {
+    competitionId: comp.id,
+    leaderId: leader.id,
+    deadline: new Date(Date.now() - 3600_000),
+  });
   const disbanded = await makeTeamPost(prisma, {
     competitionId: comp.id,
     leaderId: leader.id,
     status: TeamStatus.DISBANDED,
   });
 
-  // 公共列表已收敛为只展示招募中（Issue 4），不再提供 statuses 参数
+  // 不再按竞赛时间 / 招募截止自动失效，只有归档帖子从公共列表消失
   const all = await teams.list({ page: 1, pageSize: 20 });
   const ids = all.items.map((t) => t.id);
   assert.ok(ids.includes(recruiting.id));
-  assert.ok(!ids.includes(disbanded.id), '已解散帖子不能出现在公共列表');
+  assert.ok(ids.includes(full.id), '已满员帖子仍应展示');
+  assert.ok(ids.includes(expired.id), '招募截止已过的帖子仍应展示，由发帖人决定是否归档');
+  assert.ok(!ids.includes(disbanded.id), '已归档帖子不能出现在公共列表');
 
   const filtered = await teams.list({ page: 1, pageSize: 20, competitionId: comp.id, roles: [RoleType.PAPER] });
   assert.equal(filtered.items.length, 0, '方向筛选应基于 neededRoles');
@@ -97,7 +104,7 @@ test('setStatus：手动三态可切换；COMPETING 拒绝手动；DISBANDED 是
   const post = await makeTeamPost(prisma, { competitionId: comp.id, leaderId: leader.id });
 
   await assert.rejects(teams.setStatus(stranger.id, post.id, TeamStatus.FULL), /发帖人/);
-  await assert.rejects(teams.setStatus(leader.id, post.id, TeamStatus.COMPETING), /系统/);
+  await assert.rejects(teams.setStatus(leader.id, post.id, TeamStatus.COMPETING), /手动/);
 
   await teams.setStatus(leader.id, post.id, TeamStatus.FULL);
   await teams.setStatus(leader.id, post.id, TeamStatus.RECRUITING);
@@ -157,10 +164,11 @@ test('myTeams：归档仓库包含已解散帖子', async () => {
   assert.equal(mine.filter((t) => t.status === TeamStatus.DISBANDED).length, 1);
 });
 
-test('autoCompete：竞赛比赛节点开始后自动置为 COMPETING，已解散不动', async () => {
+test('竞赛已开始也不自动改状态：帖子继续展示，只有发帖人归档才下架', async () => {
   const prisma = getPrisma();
   const { teams } = makeService(prisma);
   const leader = await makeUser(prisma);
+  const stranger = await makeUser(prisma);
   const comp = await makeCompetition(prisma, '自动参赛赛');
   const past = new Date(Date.now() - 86400_000);
 
@@ -171,16 +179,19 @@ test('autoCompete：竞赛比赛节点开始后自动置为 COMPETING，已解�
     data: { competitionId: comp.id, stageId: stage.id, nodeType: 'CONTEST', startAt: past },
   });
   const recruiting = await makeTeamPost(prisma, { competitionId: comp.id, leaderId: leader.id });
-  const disbanded = await makeTeamPost(prisma, {
-    competitionId: comp.id,
-    leaderId: leader.id,
-    status: TeamStatus.DISBANDED,
-  });
 
-  const result = await teams.autoCompete();
-  assert.ok(result.updated >= 1);
-  assert.equal((await prisma.team.findUniqueOrThrow({ where: { id: recruiting.id } })).status, TeamStatus.COMPETING);
-  assert.equal((await prisma.team.findUniqueOrThrow({ where: { id: disbanded.id } })).status, TeamStatus.DISBANDED);
+  // 竞赛比赛节点已开始：状态不应变化，公共列表与详情仍然可见
+  assert.equal((await prisma.team.findUniqueOrThrow({ where: { id: recruiting.id } })).status, TeamStatus.RECRUITING);
+  const listed = await teams.list({ page: 1, pageSize: 20, competitionId: comp.id });
+  assert.ok(listed.items.some((t) => t.id === recruiting.id));
+  const d = await teams.detail(recruiting.id, stranger.id, 'STUDENT');
+  assert.equal(d.status, TeamStatus.RECRUITING);
+
+  // 发帖人主动归档后才从公共列表消失，其他用户直链访问 404
+  await teams.setStatus(leader.id, recruiting.id, TeamStatus.DISBANDED);
+  const after = await teams.list({ page: 1, pageSize: 20, competitionId: comp.id });
+  assert.ok(!after.items.some((t) => t.id === recruiting.id));
+  await assert.rejects(teams.detail(recruiting.id, stranger.id, 'STUDENT'), /归档/);
 });
 
 test('评论点赞：切换语义（再点一次取消）+ 计数一致', async () => {

@@ -43,7 +43,7 @@ const remaining = computed(() => {
 const goalText = computed(() => TeamGoalLabel[props.goal as TeamGoal] ?? props.goal);
 const statusText = computed(() => TeamStatusLabel[props.status as TeamStatus] ?? props.status);
 
-/** 状态点的颜色语义：招募=绿，满员=金，参赛=蓝，解散=灰 */
+/** 状态点的颜色语义：招募=绿，满员=金，参赛=蓝，归档=灰 */
 const statusClass = computed(() => {
   switch (props.status) {
     case 'RECRUITING': return 'is-recruiting';

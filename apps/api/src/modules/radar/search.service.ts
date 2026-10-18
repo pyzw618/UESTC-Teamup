@@ -39,15 +39,13 @@ export class SearchService {
 
       const rows = await this.prisma.competition.findMany({
         where: { id: { in: ids } },
-        // 招募计数与列表 / 详情同口径（Issue 17）：RECRUITING 且招募截止未过
+        // 招募计数与列表 / 详情同口径：只排除已归档帖子
         include: {
           levels: true,
           tags: true,
           _count: {
             select: {
-              teams: {
-                where: { status: 'RECRUITING', OR: [{ deadline: null }, { deadline: { gte: new Date() } }] },
-              },
+              teams: { where: { status: { not: 'DISBANDED' } } },
             },
           },
         },

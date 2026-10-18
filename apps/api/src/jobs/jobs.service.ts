@@ -4,14 +4,13 @@ import { Prisma } from '@prisma/client';
 import { PrismaService } from '../common/prisma.service';
 import { RedisService } from '../common/redis.service';
 import { NotificationService } from '../modules/notification/notification.service';
-import { TeamsService } from '../modules/match/teams.service';
 
 /** 容器默认时区是 UTC：cron 必须显式指定，否则「早上 8:05」实际会在北京时间 16:05 触发 */
 const TZ = 'Asia/Shanghai';
 const DAY_MS = 86400_000;
 const SHANGHAI_OFFSET_MS = 8 * 3600_000;
 
-/** cron worker：DDL 提醒 + 队伍状态归档（TECH_STACK §5 内置 cron） */
+/** cron worker：DDL 提醒（招募帖不再由系统按竞赛时间自动流转状态） */
 @Injectable()
 export class JobsService {
   private readonly logger = new Logger(JobsService.name);
@@ -19,7 +18,6 @@ export class JobsService {
   constructor(
     private readonly prisma: PrismaService,
     private readonly notify: NotificationService,
-    private readonly teams: TeamsService,
     private readonly redis: RedisService,
   ) {}
 
@@ -128,12 +126,5 @@ export class JobsService {
     } finally {
       await this.redis.unlock(lockKey);
     }
-  }
-
-  /** 每日 03:30 按竞赛时间线自动把招募帖置为「已参赛」 */
-  @Cron('0 30 3 * * *', { timeZone: TZ })
-  async autoCompeteTeams() {
-    const result = await this.teams.autoCompete();
-    if (result.updated > 0) this.logger.log(`自动置为已参赛的帖子 ${result.updated} 条`);
   }
 }

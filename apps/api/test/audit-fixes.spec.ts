@@ -168,9 +168,9 @@ test('#14 resolveCompetition：并发同名建档只落一条；DRAFT 不被代�
   assert.equal(after.status, PublishStatus.DRAFT, '普通组队操作不得发布管理员草稿');
 });
 
-// ---------- Issue 17：过期报名意向 + 招募计数口径 ----------
+// ---------- Issue 17：招募截止不再让帖子失效 + 招募计数口径 ----------
 
-test('#17 registerIntent：招募截止已过拒绝登记', async () => {
+test('#17 registerIntent：招募截止已过仍可登记（是否下架由发帖人决定）', async () => {
   const prisma = getPrisma();
   const leader = await makeUser(prisma);
   const visitor = await makeUser(prisma);
@@ -182,22 +182,23 @@ test('#17 registerIntent：招募截止已过拒绝登记', async () => {
     leaderId: leader.id,
     deadline: new Date(Date.now() - 3600_000),
   });
-  await assert.rejects(teams.registerIntent(post.id, visitor.id), /招募已截止/);
+  const res = await teams.registerIntent(post.id, visitor.id);
+  assert.equal(res.hasIntent, true);
 
   // 未设置截止时间的帖子不受影响
   const openPost = await makeTeamPost(prisma, { competitionId: comp.id, leaderId: leader.id });
-  const res = await teams.registerIntent(openPost.id, visitor.id);
-  assert.equal(res.hasIntent, true);
+  const res2 = await teams.registerIntent(openPost.id, visitor.id);
+  assert.equal(res2.hasIntent, true);
 });
 
-test('#17 detail：recruitingTeamsCount 为独立 count，不受 take:20 限制；列表计数过滤过期帖', async () => {
+test('#17 detail：recruitingTeamsCount 为独立 count，不受 take:20 限制；只排除已归档帖', async () => {
   const prisma = getPrisma();
   const leader = await makeUser(prisma);
   const comp = await prisma.competition.create({
     data: { code: 'AUDIT17B', name: '计数测试赛', year: 2026, status: 'PUBLISHED' },
   });
 
-  // 22 个有效招募帖 + 1 个过期 deadline 帖 + 1 个 FULL 帖
+  // 22 个招募中 + 1 个过期 deadline 帖 + 1 个 FULL 帖，均属于展示中的帖子
   for (let i = 0; i < 22; i += 1) {
     await makeTeamPost(prisma, { competitionId: comp.id, leaderId: leader.id });
   }
@@ -207,21 +208,49 @@ test('#17 detail：recruitingTeamsCount 为独立 count，不受 take:20 限制�
     deadline: new Date(Date.now() - 3600_000),
   });
   await makeTeamPost(prisma, { competitionId: comp.id, leaderId: leader.id, status: TeamStatus.FULL });
+  // 归档帖不计入
+  await makeTeamPost(prisma, { competitionId: comp.id, leaderId: leader.id, status: TeamStatus.DISBANDED });
 
   const d = await competitions.detail(comp.id, 'STUDENT');
-  assert.equal(d.recruitingTeamsCount, 22, '独立 count 不过滤分页');
+  assert.equal(d.recruitingTeamsCount, 24, '独立 count 不过滤分页，且只排除已归档帖');
   assert.equal(d.recruitingTeams.length, 20, '列表仍按前 20 条返回');
   assert.equal(d.recruitingTeamsCount !== d.recruitingTeams.length, true, '数组长度 ≠ 总量（Issue 17）');
 
   // 游客只见计数不见帖子详情 —— 该裁剪在 radar.controller.detail 中实施（服务层返回全量 + 计数）
   const guest = await competitions.detail(comp.id);
-  assert.equal(guest.recruitingTeamsCount, 22);
+  assert.equal(guest.recruitingTeamsCount, 24);
   assert.equal(guest.recruitingTeams.length, 20);
 
-  // 列表计数与详情同口径（过滤过期 deadline）
+  // 列表计数与详情同口径（只排除已归档）
   const list = await competitions.list({ page: 1, pageSize: 20 });
   const row = list.items.find((c) => c.id === comp.id);
-  assert.equal(row?.recruitingTeams, 22, '列表 recruitingTeams 计数应过滤过期 deadline（原口径会虚高为 23）');
+  assert.equal(row?.recruitingTeams, 24, '列表 recruitingTeams 计数应包含已满员与过期截止帖');
+});
+
+test('admin teams：列表可按竞赛名/学号搜索，归档与恢复只切换状态', async () => {
+  const prisma = getPrisma();
+  const leader = await makeUser(prisma, { studentNo: '20249999001', nickname: '归档测试队长' });
+  const comp = await prisma.competition.create({
+    data: { code: 'ADMINTEAM', name: '管理员归档测试赛', year: 2026, status: 'PUBLISHED' },
+  });
+  const post = await makeTeamPost(prisma, { competitionId: comp.id, leaderId: leader.id });
+
+  const byComp = await admin.adminTeamsList({ page: 1, pageSize: 20, q: '管理员归档测试赛' });
+  assert.ok(byComp.items.some((t) => t.id === post.id));
+
+  const byStudentNo = await admin.adminTeamsList({ page: 1, pageSize: 20, q: '20249999001' });
+  assert.ok(byStudentNo.items.some((t) => t.id === post.id));
+
+  const archived = await admin.setTeamArchived(post.id, true);
+  assert.equal(archived.status, 'DISBANDED');
+  assert.equal((await prisma.team.findUniqueOrThrow({ where: { id: post.id } })).status, TeamStatus.DISBANDED);
+
+  const filtered = await admin.adminTeamsList({ page: 1, pageSize: 20, q: '管理员归档测试赛', status: 'DISBANDED' });
+  assert.ok(filtered.items.some((t) => t.id === post.id));
+
+  const restored = await admin.setTeamArchived(post.id, false);
+  assert.equal(restored.status, 'RECRUITING');
+  assert.equal((await prisma.team.findUniqueOrThrow({ where: { id: post.id } })).status, TeamStatus.RECRUITING);
 });
 
 // ---------- Issue 13：评论接口复用队伍/竞赛可见性 ----------
@@ -234,7 +263,7 @@ test('#13 comments：隐藏队伍的评论读/写/点赞全部按不存在处理
     data: { code: 'AUDIT13', name: '评论测试赛', year: 2026, status: 'PUBLISHED' },
   });
   const post = await makeTeamPost(prisma, { competitionId: comp.id, leaderId: leader.id });
-  await prisma.team.update({ where: { id: post.id }, data: { status: TeamStatus.FULL } });
+  await prisma.team.update({ where: { id: post.id }, data: { status: TeamStatus.DISBANDED } });
 
   // 队长先在帖子可读时留一条评论
   const own = await comments.create(leader.id, { targetType: 'TEAM', targetId: post.id, content: '队长留言' });

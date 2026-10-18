@@ -136,6 +136,11 @@ class AnnouncementDto {
   @IsString() @Length(1, 2000) content!: string;
 }
 
+/** 招募帖归档开关：只切换是否归档，不编辑帖子内容 */
+class ArchiveTeamDto {
+  @IsBoolean() archived!: boolean;
+}
+
 /** 竞赛自定义字段（Issue 2）：键 1-30 字（中文/字母/数字/下划线/连字符），值 ≤500 字纯文本 */
 class CustomFieldDto {
   @IsString() @Length(1, 30) @Matches(/^[\u4e00-\u9fa5A-Za-z0-9_\-\s]+$/, {
@@ -293,7 +298,24 @@ export class AdminController {
     return this.admin.deleteEvent(eventId);
   }
 
-  // ---------- 组队帖管理（删除帖子） ----------
+  // ---------- 组队帖管理（列表 / 归档 / 删除） ----------
+
+  /** 招募帖列表：支持竞赛名 / 队长昵称 / 学号搜索与状态筛选 */
+  @Get('teams')
+  teams(@Query() q: PageDto) {
+    return this.admin.adminTeamsList({
+      page: Number(q.page) || 1,
+      pageSize: Number(q.pageSize) || 20,
+      q: q.q,
+      status: q.status,
+    });
+  }
+
+  /** 归档 / 恢复招募帖（只切换是否归档，不编辑内容） */
+  @Post('teams/:id/archive')
+  archiveTeam(@Param('id') id: string, @Body() dto: ArchiveTeamDto) {
+    return this.admin.setTeamArchived(id, dto.archived);
+  }
 
   @Delete('teams/:id')
   deleteTeam(@Param('id') id: string) {

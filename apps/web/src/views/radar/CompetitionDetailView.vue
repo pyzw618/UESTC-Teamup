@@ -502,9 +502,9 @@ async function submitFeedback() {
         </div>
       </section>
 
-      <!-- ================= 正在招募的队伍 ================= -->
+      <!-- ================= 组队招募帖 ================= -->
       <section class="glass p-20px">
-        <h2 class="section-title">👥 正在招募的队伍</h2>
+        <h2 class="section-title">👥 组队招募帖</h2>
         <template v-if="auth.isLoggedIn">
           <div v-if="recruitingTeams.length" class="grid grid-cols-1 md:grid-cols-2 gap-12px">
             <router-link v-for="t in recruitingTeams" :key="t.id" :to="`/teams/${t.id}`" class="glass glass-hover p-14px no-underline">
@@ -521,11 +521,11 @@ async function submitFeedback() {
               />
             </router-link>
           </div>
-          <el-empty v-else description="该竞赛下暂时没有队伍在招募，成为第一个发起者吧" :image-size="56" />
+          <el-empty v-else description="该竞赛下暂时没有组队帖，成为第一个发起者吧" :image-size="56" />
         </template>
         <FrostedGate
           v-else
-          :title="recruitingTeamsCount > 0 ? `当前有 ${recruitingTeamsCount} 支队伍正在招募` : '本竞赛暂无人组队'"
+          :title="recruitingTeamsCount > 0 ? `当前有 ${recruitingTeamsCount} 条组队帖` : '本竞赛暂无人组队'"
           description="组队招募信息仅对已通过校园邮箱认证并登录的同学开放，登录后查看队伍与缺口角色"
           style="min-height: 180px"
         >

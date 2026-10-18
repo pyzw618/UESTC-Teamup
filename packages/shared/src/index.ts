@@ -37,15 +37,15 @@ export enum TeamGoal {
   BONUS_ONLY = 'BONUS_ONLY',
 }
 
-/** 招募帖状态。RECRUITING / FULL / DISBANDED 由队长手动切换，COMPETING 由系统按比赛时间自动设置 */
+/** 招募帖状态。RECRUITING / FULL / DISBANDED 由队长手动切换；COMPETING 为历史遗留值，系统不再自动写入 */
 export enum TeamStatus {
   /** 招募中，对外展示 */
   RECRUITING = 'RECRUITING',
   /** 队长手动标记已满员（仍对外展示，仅提示不再收人） */
   FULL = 'FULL',
-  /** 比赛进行中（系统根据竞赛时间线自动设置，队长不可手动选择） */
+  /** 历史遗留：旧版本由系统按竞赛时间线自动设置，现已不再写入 */
   COMPETING = 'COMPETING',
-  /** 队长主动解散；帖子进入「归档仓库」，公共列表不再出现 */
+  /** 归档：队长主动归档或管理员归档；公共列表不再出现，管理员可恢复 */
   DISBANDED = 'DISBANDED',
 }
 
@@ -142,11 +142,15 @@ export const TeamStatusLabel: Record<TeamStatus, string> = {
   [TeamStatus.RECRUITING]: '招募中',
   [TeamStatus.FULL]: '已满员',
   [TeamStatus.COMPETING]: '已参赛',
-  [TeamStatus.DISBANDED]: '已解散',
+  [TeamStatus.DISBANDED]: '已归档',
 };
 
-/** 公开发现列表只展示的状态（2026-09-27 可见性收敛：仅「招募中」；其余状态仅发布者与管理员可见） */
-export const DISCOVERABLE_TEAM_STATUSES: TeamStatus[] = [TeamStatus.RECRUITING];
+/** 公共发现列表展示的状态：除已归档外的全部帖子（已满员 / 历史已参赛也展示） */
+export const DISCOVERABLE_TEAM_STATUSES: TeamStatus[] = [
+  TeamStatus.RECRUITING,
+  TeamStatus.FULL,
+  TeamStatus.COMPETING,
+];
 
 export const TeamGoalLabel: Record<TeamGoal, string> = {
   [TeamGoal.PRIZE]: '争取拿奖',

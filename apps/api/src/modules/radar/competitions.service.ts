@@ -20,17 +20,14 @@ export interface ListCompetitionsQuery {
   pageSize: number;
 }
 
-/** 列表 include：招募队伍计数与详情页「正在招募」同口径（Issue 17）——
- *  只统计 RECRUITING 且招募截止未过的帖子，避免列表计数虚高 */
+/** 列表 include：招募队伍计数与详情页同口径（只排除已归档帖子，不按时间自动失效） */
 const listInclude = (now: Date) => ({
   levels: true,
   tags: true,
   events: { select: { id: true, nodeType: true, startAt: true, endAt: true } },
   _count: {
     select: {
-      teams: {
-        where: { status: 'RECRUITING' as const, OR: [{ deadline: null }, { deadline: { gte: now } }] },
-      },
+      teams: { where: { status: { not: 'DISBANDED' as const } } },
     },
   },
 });
@@ -245,12 +242,11 @@ export class CompetitionsService {
       orderBy: { year: 'desc' },
     });
 
-    // “正在招募”只统计 RECRUITING 且招募截止未过的帖子；
+    // 组队帖展示口径：只排除已归档；已满员 / 历史 COMPETING 仍展示（不再按竞赛或截止时间自动失效）
     // 列表仅展示前 20 条，总量由独立 count 提供（Issue 17：数组长度 ≠ 总量）
     const recruitingWhere = {
       competitionId: id,
-      status: 'RECRUITING' as const,
-      OR: [{ deadline: null }, { deadline: { gte: now } }],
+      status: { not: 'DISBANDED' as const },
     };
     const [recruitingTeams, recruitingTeamsCount] = await this.prisma.$transaction([
       this.prisma.team.findMany({
@@ -414,12 +410,11 @@ export class CompetitionsService {
           },
         },
       }),
-      // 热招帖子
+      // 热招帖子：所有未归档的帖子，不再按招募截止时间过滤
       this.prisma.team.findMany({
         where: {
-          status: 'RECRUITING',
+          status: { not: 'DISBANDED' },
           competition: { status: 'PUBLISHED' },
-          OR: [{ deadline: null }, { deadline: { gte: now } }],
         },
         orderBy: { createdAt: 'desc' },
         take: 6,

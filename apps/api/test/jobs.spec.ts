@@ -5,7 +5,6 @@ import type { Prisma } from '@prisma/client';
 import type { PrismaService } from '../src/common/prisma.service';
 import type { RedisService } from '../src/common/redis.service';
 import type { NotificationService } from '../src/modules/notification/notification.service';
-import type { TeamsService } from '../src/modules/match/teams.service';
 import { JobsService } from '../src/jobs/jobs.service';
 
 const event = (id: string, endAt: string) => ({
@@ -63,7 +62,6 @@ function makeJob(events: ReturnType<typeof event>[], existing: StoredNotificatio
   const job = new JobsService(
     prisma as unknown as PrismaService,
     notify as unknown as NotificationService,
-    {} as TeamsService,
     redis as unknown as RedisService,
   );
   return { job, prisma, notify, redis };
